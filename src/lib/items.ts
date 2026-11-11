@@ -1,5 +1,6 @@
 /** Loads either side of a comparison (guest outfit, reference product, or consented training crop). */
 import { db, must } from './db';
+import { assertPublicUrl } from './feeds';
 import { forModel, normalise } from './images';
 import { loadVocab, summarise } from './vocab';
 import type { JudgeSide } from './ai';
@@ -15,7 +16,7 @@ async function download(bucket: string, path: string): Promise<Buffer> {
 
 /** Fetch a public product image. Size-capped and re-encoded before anything else touches it. */
 export async function fetchImage(url: string): Promise<Buffer> {
-  if (!/^https:\/\//i.test(url)) throw new Error('Image links must be https');
+  assertPublicUrl(url);
   const res = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': 'outfit-clash-importer' } });
   if (!res.ok) throw new Error(`Image fetch ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());

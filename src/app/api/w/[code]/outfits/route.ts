@@ -19,6 +19,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (!form) return Response.json({ error: 'Upload failed. Please try again.' }, { status: 400 });
 
   const functionId = String(form.get('function_id') ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(functionId)) return Response.json({ error: 'Pick a function.' }, { status: 400 });
   const fn = must(await db().from('functions').select('id').eq('id', functionId).eq('wedding_id', wedding.id).maybeSingle());
   if (!fn) return Response.json({ error: 'Pick a function.' }, { status: 400 });
   const { count } = await db().from('outfits').select('id', { count: 'exact', head: true })

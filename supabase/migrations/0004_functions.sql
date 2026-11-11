@@ -1,7 +1,7 @@
 -- SQL helpers used by the server (service role).
 
 -- One "primary" embedding per item, across guest and reference data.
-create view item_embeddings with (security_invoker = true) as
+create or replace view item_embeddings with (security_invoker = true) as
   select 'guest'::text as kind, outfit_id as id, embedding
     from outfit_photos where kind = 'full' and embedding is not null
   union all
@@ -72,7 +72,7 @@ language sql stable as $$
   ),
   others as (
     select ph.embedding from me
-    join outfits o on o.function_id = me.function_id and o.id <> me.id and o.status = 'confirmed'
+    join outfits o on o.function_id = me.function_id and o.guest_id <> me.guest_id and o.status = 'confirmed'
     join outfit_photos ph on ph.outfit_id = o.id and ph.kind = 'full' and ph.embedding is not null
   )
   select r.id, r.name, r.price, r.currency, r.permalink, r.source, b.name,

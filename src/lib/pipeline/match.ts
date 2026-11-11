@@ -148,6 +148,10 @@ export async function runMatch(outfitId: string) {
   const shortlist = must(await db().rpc('shortlist_outfits', { p_outfit: outfitId, p_top: s.shortlist_top_k })) as any[];
   await Promise.all(shortlist.filter((c) => c.similarity >= s.judge_threshold).map((c) =>
     judgeGuestPair(outfitId, c.outfit_id, c.similarity, c.attr_match ? 'attributes+similarity' : 'similarity', outfitId, false)));
+  // After an edit, pairs judged earlier are checked again. Unchanged inputs hit the cache and cost nothing.
+  const fresh = new Set(shortlist.map((c) => c.outfit_id));
+  await Promise.all((await pairsOf(outfitId)).filter((p) => !fresh.has(partner(p, outfitId))).map((p) =>
+    judgeGuestPair(outfitId, partner(p, outfitId), p.similarity, p.shortlist_reason, outfitId, false)));
   await recomputeAround(outfitId, outfitId);
 }
 

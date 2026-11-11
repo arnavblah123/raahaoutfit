@@ -3,6 +3,7 @@ import { db, must } from './db';
 import { mergeVocabulary } from './ai';
 import { fetchShopify, fetchWooCommerce, parseCsvFeed, type FeedProduct } from './feeds';
 import { loadAttributes } from './items';
+import { deleteOutfit } from './pipeline/match';
 import { createJob, runJob, setJobTotal, upsertProducts } from './reference';
 import { getSettings, setSetting } from './settings';
 import { logUsage } from './usage';
@@ -104,7 +105,11 @@ export async function purgeExpired() {
       purged_stats: { guests: guests ?? 0, outfits: outfits.length, outfits_by_function_and_colour_family: byColour },
     }).eq('id', w.id), 'mark purged');
   }
-  return { weddings: weddings.length, outfitsPurged, keptWithConsent: kept };
+  // Uploads that were never confirmed are not kept around either.
+  const stale = must(await db().from('outfits').select('id').eq('status', 'read')
+    .lt('created_at', new Date(Date.now() - 48 * 3600 * 1000).toISOString()).limit(200)) as any[];
+  for (const o of stale) await deleteOutfit(o.id);
+  return { weddings: weddings.length, outfitsPurged, keptWithConsent: kept, abandonedUploadsRemoved: stale.length };
 }
 
 // ------------------------------------------------------------------ learning

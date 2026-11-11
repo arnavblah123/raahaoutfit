@@ -18,7 +18,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ code: 
     if ((count ?? 0) >= 12) return Response.json({ error: 'That is the maximum number of functions.' }, { status: 400 });
     must(await db().from('functions').insert({ ...f, sort: count ?? 0, wedding_id: r.wedding.id }));
   }
-  if (typeof body.remove_function === 'string') {
+  if (typeof body.remove_function === 'string' && /^[0-9a-f-]{36}$/i.test(body.remove_function)) {
     const { count } = await db().from('outfits').select('id', { count: 'exact', head: true }).eq('function_id', body.remove_function);
     if (count) return Response.json({ error: 'Guests have already added outfits to that function.' }, { status: 409 });
     must(await db().from('functions').delete().eq('id', body.remove_function).eq('wedding_id', r.wedding.id));
