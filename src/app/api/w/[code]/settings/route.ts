@@ -1,4 +1,4 @@
-import { db, must } from '@/lib/db';
+import { isUuid, one, sql } from '@/lib/db';
 import { requireGuest } from '@/lib/session';
 import { parseFunctions } from '@/lib/weddings';
 
@@ -9,19 +9,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ code: 
   if (r.guest.role !== 'creator') return Response.json({ error: 'Only the creator can change this.' }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   if (typeof body.colour_map_enabled === 'boolean') {
-    must(await db().from('weddings').update({ colour_map_enabled: body.colour_map_enabled }).eq('id', r.wedding.id));
+    await sql('update weddings set colour_map_enabled = $1 where id = $2', [body.colour_map_enabled, r.wedding.id]);
   }
   if (body.add_function) {
     const [f] = parseFunctions([body.add_function]);
     if (!f) return Response.json({ error: 'Give the function a name.' }, { status: 400 });
-    const { count } = await db().from('functions').select('id', { count: 'exact', head: true }).eq('wedding_id', r.wedding.id);
-    if ((count ?? 0) >= 12) return Response.json({ error: 'That is the maximum number of functions.' }, { status: 400 });
-    must(await db().from('functions').insert({ ...f, sort: count ?? 0, wedding_id: r.wedding.id }));
+    const count = (await one<{ n: number }>('select count(*) as n from functions where wedding_id = $1', [r.wedding.id]))?.n ?? 0;
+    if (count >= 12) return Response.json({ error: 'That is the maximum number of functions.' }, { status: 400 });
+    await sql('insert into functions (wedding_id, kind, custom_name, sort) values ($1, $2, $3, $4)', [r.wedding.id, f.kind, f.custom_name, count]);
   }
-  if (typeof body.remove_function === 'string' && /^[0-9a-f-]{36}$/i.test(body.remove_function)) {
-    const { count } = await db().from('outfits').select('id', { count: 'exact', head: true }).eq('function_id', body.remove_function);
-    if (count) return Response.json({ error: 'Guests have already added outfits to that function.' }, { status: 409 });
-    must(await db().from('functions').delete().eq('id', body.remove_function).eq('wedding_id', r.wedding.id));
+  if (isUuid(body.remove_function)) {
+    const used = await one('select 1 from outfits where function_id = $1 limit 1', [body.remove_function]);
+    if (used) return Response.json({ error: 'Guests have already added outfits to that function.' }, { status: 409 });
+    await sql('delete from functions where id = $1 and wedding_id = $2', [body.remove_function, r.wedding.id]);
   }
   return Response.json({ ok: true });
 }

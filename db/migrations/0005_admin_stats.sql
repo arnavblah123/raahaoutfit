@@ -48,7 +48,6 @@ begin
   for f in select p.oid::regprocedure::text from pg_proc p
            where p.pronamespace = 'public'::regnamespace
              and p.proname in ('reference_blank_share','cost_per_outfit','label_mismatch_summary') loop
-    execute format('revoke all on function %s from public, anon, authenticated', f);
-    execute format('grant execute on function %s to service_role', f);
+    execute format('revoke all on function %s from public, app_guest', f);
   end loop;
 end $$;

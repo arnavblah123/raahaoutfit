@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { OutfitActions } from '@/components/OutfitActions';
 import { VerdictBadge } from '@/components/VerdictBadge';
-import { db, guestDb } from '@/lib/db';
-import { ownOutfit, signPhotos } from '@/lib/outfits';
+import { asGuest, sql } from '@/lib/db';
+import { ownOutfit, photoUrls } from '@/lib/outfits';
 import { getGuest, getWedding } from '@/lib/session';
 import { getSettings } from '@/lib/settings';
 import { loadVocab, summarise } from '@/lib/vocab';
@@ -21,30 +21,22 @@ export default async function OutfitPage({ params }: { params: Promise<{ code: s
   if (!outfit) notFound();
   if (outfit.status !== 'confirmed') redirect(`/w/${code}/add?function=${outfit.function_id}&outfit=${id}`);
 
-  const mine = guestDb(guest);
-  const [{ data: photos }, { data: attrs }, { data: result }, { data: requests }, { data: fn }, vocab, s] = await Promise.all([
-    mine.from('outfit_photos').select('id,kind,storage_path').eq('outfit_id', id).order('created_at'),
-    mine.from('outfit_attributes').select('group_id,value_id,other_text').eq('outfit_id', id).order('position'),
-    mine.from('outfit_results').select('verdict,reason,state,seen_at').eq('outfit_id', id).maybeSingle(),
-    mine.from('photo_requests').select('kind,requested_photo').eq('outfit_id', id).eq('status', 'open'),
-    db().from('functions').select('kind,custom_name').eq('id', outfit.function_id).maybeSingle(),
+  const [{ photos, attrs, result, requests, fn }, vocab, s] = await Promise.all([
+    asGuest(guest, async (q) => ({
+      photos: await q<{ id: string; kind: string }>('select id, kind from outfit_photos where outfit_id = $1 order by created_at', [id]),
+      attrs: await q('select group_id, value_id, other_text from outfit_attributes where outfit_id = $1 order by position', [id]),
+      result: (await q('select verdict, reason, state, seen_at from outfit_results where outfit_id = $1', [id]))[0] ?? null,
+      requests: await q(`select kind, requested_photo from photo_requests where outfit_id = $1 and status = 'open'`, [id]),
+      fn: (await q('select kind, custom_name from functions where id = $1', [outfit.function_id]))[0] ?? null,
+    })),
     loadVocab(), getSettings(),
   ]);
-  const signed = await signPhotos(guest, (photos ?? []).map((p: any) => ({ id: p.id, kind: p.kind, path: p.storage_path })));
-  if (result && !result.seen_at) await db().from('outfit_results').update({ seen_at: new Date().toISOString() }).eq('outfit_id', id);
+  const signed = photoUrls(code, photos);
 
   const clash = !!result && result.verdict !== 'no_clash';
-  let similar: any[] = [];
-  if (clash) {
-    const { data } = await db().rpc('similar_styles', { p_outfit: id, p_n: s.similar_styles_count, p_threshold: s.judge_threshold });
-    similar = await Promise.all((data ?? []).map(async (r: any) => {
-      if (r.image_url || !r.storage_path) return r;
-      const { data: link } = await db().storage.from('reference').createSignedUrl(r.storage_path, 600);
-      return { ...r, image_url: link?.signedUrl };
-    }));
-  }
-  const request = requests?.[0];
-  const details = summarise(vocab, attrs ?? []);
+  const similar = clash ? await sql('select * from similar_styles($1, $2, $3)', [id, s.similar_styles_count, s.judge_threshold]) : [];
+  const request = requests[0];
+  const details = summarise(vocab, attrs);
 
   return (
     <div className="space-y-5 pt-2">
@@ -64,7 +56,7 @@ export default async function OutfitPage({ params }: { params: Promise<{ code: s
         ) : <p className="text-muted">Your result is not ready yet. Check back in a minute.</p>}
       </section>
 
-      <OutfitActions code={code} outfitId={id} hasResult={!!result} verdict={result?.verdict ?? null}
+      <OutfitActions code={code} outfitId={id} hasResult={!!result} unseen={!!result && !result.seen_at} verdict={result?.verdict ?? null}
         request={request ? { text: request.requested_photo, followup: request.kind === 'followup' } : null} />
 
       {clash && similar.length > 0 && (

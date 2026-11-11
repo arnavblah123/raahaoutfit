@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { AddOutfit, type Selection } from '@/components/AddOutfit';
-import { db, guestDb } from '@/lib/db';
-import { ownOutfit, signPhotos } from '@/lib/outfits';
+import { asGuest, sql } from '@/lib/db';
+import { ownOutfit, photoUrls } from '@/lib/outfits';
 import { getGuest, getWedding } from '@/lib/session';
 import { loadVocab } from '@/lib/vocab';
 import { functionName } from '@/lib/weddings';
@@ -18,9 +18,9 @@ export default async function AddPage({ params, searchParams }: {
   if (!wedding || wedding.purged_at) notFound();
   const guest = await getGuest(wedding);
   if (!guest) redirect(`/w/${code}`);
-  const [vocab, { data: functions }] = await Promise.all([
+  const [vocab, functions] = await Promise.all([
     loadVocab(),
-    db().from('functions').select('id,kind,custom_name').eq('wedding_id', wedding.id).order('sort'),
+    sql('select id, kind, custom_name from functions where wedding_id = $1 order by sort', [wedding.id]),
   ]);
 
   // Resuming an unfinished outfit, or editing a confirmed one.
@@ -28,14 +28,13 @@ export default async function AddPage({ params, searchParams }: {
   if (sp.outfit) {
     const outfit = await ownOutfit(guest, sp.outfit);
     if (!outfit) notFound();
-    const mine = guestDb(guest);
-    const [{ data: photos }, { data: attrs }] = await Promise.all([
-      mine.from('outfit_photos').select('id,kind,storage_path').eq('outfit_id', outfit.id).order('created_at'),
-      mine.from('outfit_attributes').select('group_id,value_id,other_text,ai_suggested,position').eq('outfit_id', outfit.id).order('position'),
-    ]);
+    const { photos, attrs } = await asGuest(guest, async (q) => ({
+      photos: await q<{ id: string; kind: string }>('select id, kind from outfit_photos where outfit_id = $1 order by created_at', [outfit.id]),
+      attrs: await q('select group_id, value_id, other_text, ai_suggested from outfit_attributes where outfit_id = $1 order by position', [outfit.id]),
+    }));
     const selection: Selection = {}; const suggested: Record<string, string[]> = {};
     const colourGroup = vocab.groups.find((g) => g.key === 'colour')!.id;
-    for (const a of attrs ?? []) {
+    for (const a of attrs) {
       const s = (selection[a.group_id] ??= { ids: [], other: '' });
       if (a.value_id) {
         if (a.ai_suggested) (suggested[a.group_id] ??= []).push(a.value_id);
@@ -45,7 +44,7 @@ export default async function AddPage({ params, searchParams }: {
     }
     existing = {
       id: outfit.id, functionId: outfit.function_id, selection, suggested, confirmed: outfit.status === 'confirmed',
-      photos: await signPhotos(guest, (photos ?? []).map((p: any) => ({ id: p.id, kind: p.kind, path: p.storage_path }))),
+      photos: photoUrls(code, photos),
     };
   }
 
@@ -54,7 +53,7 @@ export default async function AddPage({ params, searchParams }: {
       <Link href={`/w/${code}`} className="text-sm text-muted">‹ Back</Link>
       <AddOutfit
         code={code}
-        functions={(functions ?? []).map((f: any) => ({ id: f.id, name: functionName(f) }))}
+        functions={functions.map((f) => ({ id: f.id, name: functionName(f) }))}
         initialFunction={existing?.functionId ?? sp.function ?? ''}
         groups={vocab.groups} families={vocab.families.map((f) => ({ id: f.id, label: f.label }))}
         existing={existing}

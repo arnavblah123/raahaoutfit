@@ -1,4 +1,4 @@
-import { db, must } from '@/lib/db';
+import { one } from '@/lib/db';
 import { ensureEmbeddings, ownOutfit } from '@/lib/outfits';
 import { rerunAfterExtraPhoto } from '@/lib/pipeline/match';
 import { requireGuest } from '@/lib/session';
@@ -13,14 +13,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   const outfit = await ownOutfit(r.guest, id);
   if (!outfit || outfit.status !== 'confirmed') return Response.json({ error: 'Not found' }, { status: 404 });
   const body = await req.json().catch(() => null);
-  const pending = must(await db().from('outfit_photos').select('id').eq('outfit_id', id).is('embedding', null)) as any[];
-  if (!pending.length) return Response.json({ error: 'Nothing new to check.' }, { status: 400 });
+  if (!(await one('select 1 from outfit_photos where outfit_id = $1 and embedding is null limit 1', [id]))) return Response.json({ error: 'Nothing new to check.' }, { status: 400 });
   try {
     await ensureEmbeddings(id, body?.embeddings);
   } catch {
     return Response.json({ error: 'We could not process that photo just now. Please try again in a minute.' }, { status: 503 });
   }
   await rerunAfterExtraPhoto(id);
-  const result = must(await db().from('outfit_results').select('verdict,reason,state').eq('outfit_id', id).maybeSingle());
+  const result = await one('select verdict, reason, state from outfit_results where outfit_id = $1', [id]);
   return Response.json({ result });
 }

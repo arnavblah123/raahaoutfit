@@ -1,4 +1,4 @@
-import { db, must } from '@/lib/db';
+import { one, sql } from '@/lib/db';
 import { getGuest, getWedding, hashToken, newToken, setGuestCookie } from '@/lib/session';
 import { clean } from '@/lib/weddings';
 
@@ -9,12 +9,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (await getGuest(wedding)) return Response.json({ ok: true });
   const name = clean((await req.json().catch(() => null))?.name, 40);
   if (!name) return Response.json({ error: 'Please enter your name.' }, { status: 400 });
-  const { count } = await db().from('guests').select('id', { count: 'exact', head: true }).eq('wedding_id', wedding.id);
-  if ((count ?? 0) >= 2000) return Response.json({ error: 'This wedding is full.' }, { status: 429 });
+  const count = await one<{ n: number }>('select count(*) as n from guests where wedding_id = $1', [wedding.id]);
+  if ((count?.n ?? 0) >= 2000) return Response.json({ error: 'This wedding is full.' }, { status: 429 });
   const token = newToken(), recovery = newToken();
-  must(await db().from('guests').insert({
-    wedding_id: wedding.id, display_name: name, token_hash: hashToken(token), recovery_token_hash: hashToken(recovery),
-  }), 'join');
+  await sql('insert into guests (wedding_id, display_name, token_hash, recovery_token_hash) values ($1, $2, $3, $4)',
+    [wedding.id, name, hashToken(token), hashToken(recovery)]);
   await setGuestCookie(code, token);
   return Response.json({ ok: true, recovery });
 }

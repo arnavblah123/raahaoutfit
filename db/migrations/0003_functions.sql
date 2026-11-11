@@ -1,7 +1,7 @@
--- SQL helpers used by the server (service role).
+-- SQL helpers used by the server.
 
 -- One "primary" embedding per item, across guest and reference data.
-create or replace view item_embeddings with (security_invoker = true) as
+create or replace view item_embeddings as
   select 'guest'::text as kind, outfit_id as id, embedding
     from outfit_photos where kind = 'full' and embedding is not null
   union all
@@ -57,7 +57,7 @@ $$;
 -- at the function. Never returns IndoFashion rows (guest_visible is false for them).
 create or replace function similar_styles(p_outfit uuid, p_n int default 4, p_threshold real default 0.6)
 returns table (id uuid, name text, price numeric, currency text, permalink text, source text,
-               brand text, image_url text, storage_path text, similarity real)
+               brand text, image_url text, similarity real)
 language sql stable as $$
   with me as (select * from outfits where id = p_outfit),
   q as (select embedding from outfit_photos
@@ -76,11 +76,11 @@ language sql stable as $$
     join outfit_photos ph on ph.outfit_id = o.id and ph.kind = 'full' and ph.embedding is not null
   )
   select r.id, r.name, r.price, r.currency, r.permalink, r.source, b.name,
-         rp.source_url, rp.storage_path, (1 - (rp.embedding <=> q.embedding))::real
+         rp.source_url, (1 - (rp.embedding <=> q.embedding))::real
   from q, reference_outfits r
   join reference_photos rp on rp.reference_outfit_id = r.id and rp.sort = 0 and rp.embedding is not null
   left join partner_brands b on b.id = r.brand_id
-  where r.guest_visible and r.status = 'processed' and r.permalink is not null
+  where r.guest_visible and r.status = 'processed' and r.permalink is not null and rp.source_url is not null
     and (r.source = 'raaha' or coalesce(b.show_in_similar, false))
     and (r.colour_family_id is null or r.colour_family_id not in (select colour_family_id from clash_families))
     and not exists (select 1 from others o where 1 - (rp.embedding <=> o.embedding) >= p_threshold)
@@ -175,7 +175,7 @@ begin
   return null;
 end $$;
 
--- Keep these off the public API: service role only.
+-- Server only: the restricted guest role cannot call these.
 do $$
 declare f text;
 begin
@@ -183,7 +183,6 @@ begin
            where p.pronamespace = 'public'::regnamespace
              and p.proname in ('shortlist_outfits','colour_map','similar_styles','similar_labelled_cases',
                                'label_candidates','nearest_reference','record_pending_value') loop
-    execute format('revoke all on function %s from public, anon, authenticated', f);
-    execute format('grant execute on function %s to service_role', f);
+    execute format('revoke all on function %s from public, app_guest', f);
   end loop;
 end $$;

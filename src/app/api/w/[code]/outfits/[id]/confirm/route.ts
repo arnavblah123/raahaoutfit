@@ -1,4 +1,4 @@
-import { db, must } from '@/lib/db';
+import { one, sql, transaction } from '@/lib/db';
 import { ensureEmbeddings, ownOutfit } from '@/lib/outfits';
 import { runMatch } from '@/lib/pipeline/match';
 import { requireGuest } from '@/lib/session';
@@ -21,7 +21,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   const incoming: Incoming[] = Array.isArray(body?.attributes) ? body.attributes : [];
   const [vocab, s] = await Promise.all([loadVocab(), getSettings()]);
 
-  const previous = must(await db().from('outfit_attributes').select('group_id,value_id,ai_suggested,ai_confidence').eq('outfit_id', id)) as any[];
+  const previous = await sql('select group_id, value_id, ai_suggested, ai_confidence from outfit_attributes where outfit_id = $1', [id]);
   const rows: any[] = [];
   let garmentTypeId: string | null = null, colourFamilyId: string | null = null;
   for (const g of vocab.groups) {
@@ -33,7 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
     for (const text of others) {
       if (g.free_text) { rows.push({ group_id: g.id, value_id: null, other_text: text, position: 99 }); continue; }
       // "Other" entries feed the vocabulary. If the value already exists (or has just been promoted) use it.
-      const { data: resolved } = await db().rpc('record_pending_value', { p_group: g.id, p_raw: text, p_by: 'guest', p_promote_after: s.vocab_auto_promote_after });
+      const resolved = (await one<{ id: string | null }>(`select record_pending_value($1, $2, 'guest', $3) as id`, [g.id, text, s.vocab_auto_promote_after]))?.id;
       if (resolved && !ids.includes(resolved)) ids.push(resolved);
       else if (!resolved) rows.push({ group_id: g.id, value_id: null, other_text: text, position: 99 });
     }
@@ -55,14 +55,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
     console.error('embedding failed', e);
     return Response.json({ error: 'We could not process your photos just now. Please try again in a minute.' }, { status: 503 });
   }
-  must(await db().from('outfit_attributes').delete().eq('outfit_id', id), 'clear attributes');
-  must(await db().from('outfit_attributes').insert(rows.map((x) => ({ ...x, outfit_id: id, confirmed: true }))), 'save attributes');
-  must(await db().from('outfits').update({
-    status: 'confirmed', garment_type_id: garmentTypeId, colour_family_id: colourFamilyId,
-    confirmed_at: outfit.confirmed_at ?? new Date().toISOString(),
-  }).eq('id', id), 'confirm outfit');
+  await transaction(async (q) => {
+    await q('delete from outfit_attributes where outfit_id = $1', [id]);
+    for (const x of rows) {
+      await q(`insert into outfit_attributes (outfit_id, group_id, value_id, other_text, ai_suggested, ai_confidence, confirmed, position)
+               values ($1, $2, $3, $4, $5, $6, true, $7)`, [id, x.group_id, x.value_id, x.other_text, !!x.ai_suggested, x.ai_confidence ?? null, x.position]);
+    }
+    await q(`update outfits set status = 'confirmed', garment_type_id = $2, colour_family_id = $3, confirmed_at = coalesce(confirmed_at, now()) where id = $1`,
+      [id, garmentTypeId, colourFamilyId]);
+  });
 
   await runMatch(id);
-  const result = must(await db().from('outfit_results').select('verdict,reason,state').eq('outfit_id', id).maybeSingle());
+  const result = await one('select verdict, reason, state from outfit_results where outfit_id = $1', [id]);
   return Response.json({ result });
 }

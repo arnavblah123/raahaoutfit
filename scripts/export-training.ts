@@ -9,17 +9,15 @@
 import { args, bar } from './_env';
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
-import { db, must } from '../src/lib/db';
+import { closeDb, sql } from '../src/lib/db';
 import { loadAttributes, type ItemKind } from '../src/lib/items';
 
 const out = path.join(args().out ?? 'exports', new Date().toISOString().slice(0, 10));
 mkdirSync(path.join(out, 'images'), { recursive: true });
 const outfits = new Map<string, any>();
 
-async function save(bucket: string, storagePath: string, name: string) {
-  const { data } = await db().storage.from(bucket).download(storagePath);
-  if (!data) return null;
-  writeFileSync(path.join(out, 'images', name), Buffer.from(await data.arrayBuffer()));
+function save(image: Buffer, name: string) {
+  writeFileSync(path.join(out, 'images', name), image);
   return `images/${name}`;
 }
 async function addItem(kind: ItemKind, id: string) {
@@ -27,13 +25,10 @@ async function addItem(kind: ItemKind, id: string) {
   if (outfits.has(key) || kind === 'guest') return outfits.has(key);   // live guest outfits are never exported
   const images: string[] = [];
   if (kind === 'training') {
-    for (const p of must(await db().from('training_photos').select('id,kind,storage_path').eq('training_outfit_id', id)) as any[]) {
-      const f = await save('training', p.storage_path, `training-${id}-${p.kind}-${p.id}.jpg`); if (f) images.push(f);
-    }
+    for (const p of await sql('select id, kind, image from training_photos where training_outfit_id = $1', [id])) images.push(save(p.image, `training-${id}-${p.kind}-${p.id}.jpg`));
   } else {
-    for (const p of must(await db().from('reference_photos').select('id,storage_path,source_url,sort').eq('reference_outfit_id', id).order('sort')) as any[]) {
-      if (p.storage_path) { const f = await save('reference', p.storage_path, `reference-${id}-${p.sort}.jpg`); if (f) images.push(f); }
-      else if (p.source_url) images.push(p.source_url);
+    for (const p of await sql('select image, source_url, sort from reference_photos where reference_outfit_id = $1 order by sort', [id])) {
+      if (p.image) images.push(save(p.image, `reference-${id}-${p.sort}.jpg`)); else if (p.source_url) images.push(p.source_url);
     }
   }
   if (!images.length) return false;
@@ -41,9 +36,9 @@ async function addItem(kind: ItemKind, id: string) {
   return true;
 }
 
-const training = must(await db().from('training_outfits').select('id')) as any[];
+const training = await sql('select id from training_outfits');
 for (const [i, t] of training.entries()) { bar(i + 1, training.length, 'consented photos'); await addItem('training', t.id); }
-const labels = must(await db().from('label_pairs').select('*').not('admin_label', 'is', null).limit(50000)) as any[];
+const labels = await sql('select * from label_pairs where admin_label is not null');
 const pairs: any[] = [];
 for (const [i, l] of labels.entries()) {
   bar(i + 1, labels.length, 'confirmed pairs   ');
@@ -54,3 +49,4 @@ for (const [i, l] of labels.entries()) {
 writeFileSync(path.join(out, 'outfits.jsonl'), [...outfits.values()].map((o) => JSON.stringify(o)).join('\n') + '\n');
 writeFileSync(path.join(out, 'pairs.jsonl'), pairs.map((p) => JSON.stringify(p)).join('\n') + '\n');
 console.log(`\nWrote ${outfits.size} outfits and ${pairs.length} labelled pairs to ${out}`);
+await closeDb();

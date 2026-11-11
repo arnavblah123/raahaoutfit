@@ -1,6 +1,6 @@
-import { db } from '@/lib/db';
+import { one } from '@/lib/db';
 import { AiError } from '@/lib/ai';
-import { UploadError, ownOutfit, readUpload, signPhotos, storeCropped } from '@/lib/outfits';
+import { UploadError, ownOutfit, photoUrls, readUpload, storeCropped } from '@/lib/outfits';
 import { runRead } from '@/lib/pipeline/read';
 import { checkRate } from '@/lib/ratelimit';
 import { requireGuest } from '@/lib/session';
@@ -17,8 +17,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (r.error) return r.error;
   const outfit = await ownOutfit(r.guest, id);
   if (!outfit || outfit.status !== 'confirmed') return Response.json({ error: 'Not found' }, { status: 404 });
-  const { count } = await db().from('outfit_photos').select('id', { count: 'exact', head: true }).eq('outfit_id', id).eq('kind', 'extra');
-  if ((count ?? 0) >= MAX_EXTRA) return Response.json({ error: 'This outfit already has the maximum number of photos.' }, { status: 409 });
+  const count = await one<{ n: number }>(`select count(*) as n from outfit_photos where outfit_id = $1 and kind = 'extra'`, [id]);
+  if ((count?.n ?? 0) >= MAX_EXTRA) return Response.json({ error: 'This outfit already has the maximum number of photos.' }, { status: 409 });
 
   const form = await req.formData().catch(() => null);
   let image;
@@ -42,6 +42,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
     throw e;
   }
   if (read.notOutfit) return Response.json({ error: 'That does not look like an outfit photo.' }, { status: 422 });
-  const photo = await storeCropped({ guest: r.guest, outfitId: id, kind: 'extra', image, bbox: read.photos[0]?.bbox });
-  return Response.json({ photos: await signPhotos(r.guest, [photo]) });
+  const photo = await storeCropped({ outfitId: id, kind: 'extra', image, bbox: read.photos[0]?.bbox });
+  return Response.json({ photos: photoUrls(code, [photo]) });
 }

@@ -1,40 +1,63 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { SignJWT } from 'jose';
-import { env } from './env';
+/**
+ * Postgres access (Neon, or any Postgres with pgvector). Server only.
+ *   sql / one  -> run as the database owner
+ *   asGuest    -> run as the restricted role, so row-level security limits a guest to her own rows
+ */
+import { Pool, types, type PoolClient } from 'pg';
 
-let _admin: SupabaseClient | null = null;
+types.setTypeParser(20, Number);                                     // bigint (counts)
+types.setTypeParser(1700, Number);                                   // numeric (prices, costs)
+types.setTypeParser(1082, (v) => v);                                 // date stays 'YYYY-MM-DD'
+types.setTypeParser(1184, (v) => new Date(v).toISOString());         // timestamptz -> ISO string
 
-/** Service-role client. Server only. Bypasses row-level security. */
-export function db(): SupabaseClient {
-  if (!_admin) {
-    _admin = createClient(env.supabaseUrl, env.supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+let pool: Pool | null = null;
+function getPool() {
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) throw new Error('Missing environment variable DATABASE_URL');
+    pool = new Pool({ connectionString, max: Number(process.env.DATABASE_POOL_MAX ?? 5), idleTimeoutMillis: 10_000 });
+    pool.on('error', (e) => console.error('database pool error', e.message));
   }
-  return _admin;
+  return pool;
 }
+
+export type Query = <T = any>(text: string, params?: unknown[]) => Promise<T[]>;
+
+export const sql: Query = async (text, params) => (await getPool().query(text, params as any[])).rows;
+export async function one<T = any>(text: string, params?: unknown[]): Promise<T | null> {
+  return (await sql<T>(text, params))[0] ?? null;
+}
+
+async function withClient<T>(setup: (c: PoolClient) => Promise<void>, fn: (q: Query) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    await setup(client);
+    const out = await fn(async (text, params) => (await client.query(text, params as any[])).rows);
+    await client.query('commit');
+    return out;
+  } catch (e) {
+    await client.query('rollback').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Several statements in one transaction, as the owner. */
+export const transaction = <T>(fn: (q: Query) => Promise<T>) => withClient(async () => {}, fn);
 
 /**
- * Client scoped to one guest. Row-level security limits it to her own rows and photos.
- * Used for everything a guest reads, so a bug in a query cannot leak another guest's data.
+ * Everything a guest reads goes through here. The role and the two settings last only for this
+ * transaction; app_guest can read nothing but her own rows, and can write nothing.
  */
-export function guestDb(guest: { id: string; wedding_id: string }): SupabaseClient {
-  const secret = new TextEncoder().encode(env.supabaseJwtSecret);
-  const token = () =>
-    new SignJWT({ role: 'authenticated', guest_id: guest.id, wedding_id: guest.wedding_id })
-      .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-      .setSubject(guest.id)
-      .setAudience('authenticated')
-      .setIssuedAt()
-      .setExpirationTime('10m')
-      .sign(secret);
-  return createClient(env.supabaseUrl, env.supabaseAnonKey, {
-    accessToken: token,
-    auth: { persistSession: false, autoRefreshToken: false },
-  } as any);
+export function asGuest<T>(guest: { id: string; wedding_id: string }, fn: (q: Query) => Promise<T>): Promise<T> {
+  return withClient(async (c) => {
+    await c.query("select set_config('app.guest_id', $1, true), set_config('app.wedding_id', $2, true)", [guest.id, guest.wedding_id]);
+    await c.query('set local role app_guest');
+  }, fn);
 }
 
-export function must<T>(res: { data: T | null; error: any }, what = 'query'): T {
-  if (res.error) throw new Error(`${what}: ${res.error.message}`);
-  return res.data as T;
-}
+export async function closeDb() { await pool?.end(); pool = null; }
+export const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+export const json = (v: unknown) => JSON.stringify(v);

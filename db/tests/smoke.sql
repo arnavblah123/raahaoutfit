@@ -1,5 +1,5 @@
 -- Smoke test for the SQL layer: shortlist, colour map, similar styles, vocabulary promotion, RLS.
--- Run against a scratch database after the migrations:  psql -v ON_ERROR_STOP=1 -f supabase/tests/smoke.sql
+-- Run against a scratch database after the migrations:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/smoke.sql
 -- Everything happens in a transaction that is rolled back.
 begin;
 
@@ -30,8 +30,8 @@ insert into outfits (id, wedding_id, function_id, guest_id, status, colour_famil
          'confirmed', pg_temp.fam(o.family), now() - (o.n || ' minutes')::interval
   from (values (1, 1, 1, 'reds_pinks'), (2, 1, 2, 'reds_pinks'), (3, 1, 3, 'reds_pinks'), (4, 1, 4, 'blues'),
                (5, 2, 2, 'reds_pinks'), (6, 1, 1, 'reds_pinks')) as o(n, f, g, family);
-insert into outfit_photos (outfit_id, kind, storage_path, embedding)
-  select ('00000000-0000-0000-0000-0000000000' || lpad(p.n::text, 2, '0'))::uuid, 'full', 'w/g/o/' || p.n || '.jpg', pg_temp.vec(p.a, p.b, p.c)
+insert into outfit_photos (outfit_id, kind, image, embedding)
+  select ('00000000-0000-0000-0000-0000000000' || lpad(p.n::text, 2, '0'))::uuid, 'full', '\x00'::bytea, pg_temp.vec(p.a, p.b, p.c)
   from (values (1, 1, 0, 0), (2, 0.98, 0.2, 0), (3, 0, 1, 0), (4, 0, 0, 1), (5, 1, 0, 0), (6, 1, 0, 0)) as p(n, a, b, c);
 insert into outfit_attributes (outfit_id, group_id, value_id, confirmed)
   select ('00000000-0000-0000-0000-0000000000' || lpad(n::text, 2, '0'))::uuid, (select id from attribute_groups where key = 'garment_type'),
@@ -87,20 +87,25 @@ begin
   perform pg_temp.check(record_pending_value(g, 'Floral', 'guest', 3) = pg_temp.val('motif', 'floral'), 'an existing value is returned, not queued');
 end $$;
 
--- Row-level security: guest 1's token sees only her own rows.
-set local role authenticated;
-select set_config('request.jwt.claims', '{"role":"authenticated","guest_id":"00000000-0000-0000-0000-000000000001","wedding_id":"00000000-0000-0000-0000-0000000000a1"}', true);
+-- Row-level security: as the restricted role with guest 1's id, only her own rows are visible.
+grant execute on function pg_temp.check(boolean, text) to app_guest;
+set local role app_guest;
+select set_config('app.guest_id', '00000000-0000-0000-0000-000000000001', true), set_config('app.wedding_id', '00000000-0000-0000-0000-0000000000a1', true);
 select pg_temp.check((select count(*) from outfits) = 2, 'a guest reads only her own outfits');
 select pg_temp.check((select count(*) from outfit_photos) = 2, 'a guest reads only her own photos');
 select pg_temp.check((select count(*) from guests) = 1, 'a guest cannot list other guests');
-select pg_temp.check((select count(*) from outfit_pairs) = 0, 'pairs are never readable by guests');
-select pg_temp.check((select count(*) from reference_outfits) = 0 and (select count(*) from settings) = 0, 'reference data and settings are server-only');
 select pg_temp.check((select count(*) from attribute_values) > 200, 'the vocabulary is readable');
-do $$ begin
+do $$ declare t text; begin
+  foreach t in array array['outfit_pairs', 'reference_outfits', 'settings', 'label_pairs', 'ai_usage', 'result_feedback', 'training_photos'] loop
+    begin execute format('select count(*) from %I', t); raise exception 'FAILED: guest role could read %', t;
+    exception when insufficient_privilege then raise notice 'ok: guest role cannot read %', t; end;
+  end loop;
   begin perform * from shortlist_outfits('00000000-0000-0000-0000-000000000001', 5); raise exception 'FAILED: guest could call shortlist_outfits';
-  exception when insufficient_privilege then raise notice 'ok: server-only functions are not callable by guests'; end;
-  begin update outfits set status = 'read'; if found then raise exception 'FAILED: guest could update outfits'; end if; raise notice 'ok: guests cannot write';
-  exception when insufficient_privilege then raise notice 'ok: guests cannot write'; end;
+  exception when insufficient_privilege then raise notice 'ok: server-only functions are not callable by the guest role'; end;
+  begin update outfits set status = 'read'; raise exception 'FAILED: guest role could update outfits';
+  exception when insufficient_privilege then raise notice 'ok: the guest role cannot write'; end;
+  begin delete from outfit_photos; raise exception 'FAILED: guest role could delete photos';
+  exception when insufficient_privilege then raise notice 'ok: the guest role cannot delete'; end;
 end $$;
 reset role;
 

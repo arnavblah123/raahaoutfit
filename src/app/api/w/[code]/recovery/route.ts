@@ -1,4 +1,4 @@
-import { db, must } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { hashToken, newToken, requireGuest } from '@/lib/session';
 
 /** Issue a fresh recovery link (the old one stops working). */
@@ -6,6 +6,6 @@ export async function POST(_req: Request, { params }: { params: Promise<{ code: 
   const r = await requireGuest((await params).code);
   if (r.error) return r.error;
   const recovery = newToken();
-  must(await db().from('guests').update({ recovery_token_hash: hashToken(recovery) }).eq('id', r.guest.id));
+  await sql('update guests set recovery_token_hash = $1 where id = $2', [hashToken(recovery), r.guest.id]);
   return Response.json({ recovery });
 }

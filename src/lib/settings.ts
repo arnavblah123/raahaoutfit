@@ -1,4 +1,4 @@
-import { db } from './db';
+import { json, sql } from './db';
 
 export type Settings = {
   shortlist_top_k: number;
@@ -27,13 +27,14 @@ export const DEFAULTS: Settings = {
 let cache: { at: number; value: Settings } | null = null;
 export async function getSettings(fresh = false): Promise<Settings> {
   if (!fresh && cache && Date.now() - cache.at < 30_000) return cache.value;
-  const { data } = await db().from('settings').select('key,value');
+  const rows = await sql<{ key: string; value: unknown }>('select key, value from settings');
   const value = { ...DEFAULTS } as any;
-  for (const row of data ?? []) if (row.key in value) value[row.key] = row.value;
+  for (const row of rows) if (row.key in value) value[row.key] = row.value;
   cache = { at: Date.now(), value };
   return value;
 }
 export async function setSetting(key: keyof Settings, value: unknown) {
-  await db().from('settings').upsert({ key, value, updated_at: new Date().toISOString() });
+  await sql(`insert into settings (key, value) values ($1, $2::jsonb)
+             on conflict (key) do update set value = excluded.value, updated_at = now()`, [key, json(value)]);
   cache = null;
 }

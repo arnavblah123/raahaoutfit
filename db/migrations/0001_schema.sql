@@ -1,4 +1,4 @@
--- Outfit Clash: core schema
+-- Outfit Clash: core schema (plain Postgres + pgvector; runs on Neon)
 create extension if not exists vector;
 create extension if not exists pgcrypto;
 
@@ -109,7 +109,7 @@ create table outfit_photos (
   id uuid primary key default gen_random_uuid(),
   outfit_id uuid not null references outfits on delete cascade,
   kind text not null check (kind in ('full','closeup','extra')),
-  storage_path text not null,
+  image bytea not null,                 -- cropped JPEG, metadata stripped; the original is never stored
   width int, height int,
   bbox jsonb,
   embedding vector(768),
@@ -207,7 +207,8 @@ create table partner_brands (
   feed_url text,
   permission_date date,
   permission_note text,
-  permission_file_path text,
+  permission_file bytea,
+  permission_file_name text,
   show_in_similar boolean not null default false,
   created_at timestamptz not null default now()
 );
@@ -257,7 +258,7 @@ create index on reference_outfits (status);
 create table reference_photos (
   id uuid primary key default gen_random_uuid(),
   reference_outfit_id uuid not null references reference_outfits on delete cascade,
-  storage_path text,
+  image bytea,                          -- stored copy (own stock, IndoFashion); null when source_url is used
   source_url text,
   sort int not null default 0,
   embedding vector(768),
@@ -301,7 +302,7 @@ create table training_photos (
   id uuid primary key default gen_random_uuid(),
   training_outfit_id uuid not null references training_outfits on delete cascade,
   kind text not null,
-  storage_path text not null
+  image bytea not null
 );
 
 create table label_pairs (
@@ -349,16 +350,4 @@ create table threshold_log (
   sample_size int,
   metric jsonb,
   created_at timestamptz not null default now()
-);
-
-create table admins (
-  email text primary key,
-  user_id uuid,
-  last_login_at timestamptz
-);
-
--- Server-only values used by scheduled jobs (app URL and cron secret).
-create table private_config (
-  key text primary key,
-  value text not null
 );

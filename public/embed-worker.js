@@ -1,5 +1,5 @@
 // Runs Marqo-FashionSigLIP in the guest's browser (transformers.js, WebAssembly).
-// The photo it embeds is the guest's own cropped image, loaded through a short-lived signed link.
+// The photo it embeds is the guest's own cropped image, loaded with her own cookie from this site.
 let ready;
 async function load(model, dtype) {
   const t = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');

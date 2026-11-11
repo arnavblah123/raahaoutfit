@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { createHash, randomBytes } from 'crypto';
-import { db } from './db';
+import { one, sql } from './db';
 
 export const newToken = () => randomBytes(32).toString('base64url');
 export const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -20,18 +20,16 @@ export type Guest = { id: string; wedding_id: string; display_name: string; role
 
 export async function getWedding(code: string): Promise<Wedding | null> {
   if (!/^[a-z0-9]{6,32}$/.test(code)) return null;
-  const { data } = await db().from('weddings').select('*').eq('join_code', code).maybeSingle();
-  return data;
+  return one<Wedding>(`select id, couple_names, wedding_date, city, join_code, colour_map_enabled, purge_after, purged_at
+                       from weddings where join_code = $1`, [code]);
 }
 
 /** The guest behind this browser for this wedding, from the cookie (or a recovery token). */
 export async function getGuest(wedding: Wedding): Promise<Guest | null> {
   const token = (await cookies()).get(cookieName(wedding.join_code))?.value;
   if (!token) return null;
-  const h = hashToken(token);
-  const { data } = await db().from('guests').select('id,wedding_id,display_name,role')
-    .eq('wedding_id', wedding.id).or(`token_hash.eq.${h},recovery_token_hash.eq.${h}`).maybeSingle();
-  return data;
+  return one<Guest>(`select id, wedding_id, display_name, role from guests
+                     where wedding_id = $1 and (token_hash = $2 or recovery_token_hash = $2)`, [wedding.id, hashToken(token)]);
 }
 
 export async function setGuestCookie(code: string, token: string) {
@@ -50,6 +48,6 @@ export async function requireGuest(code: string): Promise<
   if (wedding.purged_at) return { error: Response.json({ error: 'This wedding has ended' }, { status: 410 }) };
   const guest = await getGuest(wedding);
   if (!guest) return { error: Response.json({ error: 'Please join the wedding first' }, { status: 401 }) };
-  db().from('guests').update({ last_seen_at: new Date().toISOString() }).eq('id', guest.id).then(() => {});
+  sql('update guests set last_seen_at = now() where id = $1', [guest.id]).catch(() => {});
   return { wedding, guest };
 }

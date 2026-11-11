@@ -1,14 +1,13 @@
 import { PendingRow, VocabPassButton } from '@/components/admin/Buttons';
-import { db } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 import { loadVocab } from '@/lib/vocab';
 
 export default async function Vocabulary() {
-  const [vocab, s, pending] = await Promise.all([
+  const [vocab, s, rows] = await Promise.all([
     loadVocab(true), getSettings(),
-    db().from('attribute_pending').select('*').eq('status', 'pending').order('occurrences', { ascending: false }).limit(500),
+    sql(`select * from attribute_pending where status = 'pending' order by occurrences desc limit 500`),
   ]);
-  const rows = (pending.data ?? []) as any[];
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">

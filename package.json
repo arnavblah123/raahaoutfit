@@ -13,15 +13,17 @@
     "export:training": "tsx scripts/export-training.ts",
     "import:raaha": "tsx scripts/import-raaha.ts",
     "import:indofashion": "tsx scripts/import-indofashion.ts",
-    "embed:server": "tsx scripts/embed-server.ts"
+    "embed:server": "tsx scripts/embed-server.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "worker": "tsx scripts/worker.ts",
+    "test:e2e": "node tests/e2e/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
     "@huggingface/transformers": "^4.3.2",
-    "@supabase/ssr": "^0.12.7",
-    "@supabase/supabase-js": "^2.119.0",
     "jose": "^6.2.17",
     "next": "^16.4.6",
+    "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-image-crop": "^11.1.2",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "tailwindcss": "^4.3.5",

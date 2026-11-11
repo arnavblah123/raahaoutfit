@@ -1,4 +1,4 @@
-import { db } from './db';
+import { sql } from './db';
 
 export type VocabValue = { id: string; value: string; family_id: string | null; hex: string | null };
 export type VocabGroup = { id: string; key: string; label: string; free_text: boolean; values: VocabValue[] };
@@ -9,19 +9,18 @@ let cache: { at: number; value: Vocab } | null = null;
 
 export async function loadVocab(fresh = false): Promise<Vocab> {
   if (!fresh && cache && Date.now() - cache.at < 60_000) return cache.value;
-  const [g, v, f] = await Promise.all([
-    db().from('attribute_groups').select('id,key,label,free_text').order('sort'),
-    db().from('attribute_values').select('id,group_id,value,colour_family_id,swatch_hex')
-      .eq('status', 'active').order('sort').order('value').limit(5000),
-    db().from('colour_families').select('id,key,label,neighbour_keys').order('sort'),
+  const [g, v, families] = await Promise.all([
+    sql('select id, key, label, free_text from attribute_groups order by sort'),
+    sql(`select id, group_id, value, colour_family_id, swatch_hex from attribute_values
+         where status = 'active' order by sort, value`),
+    sql<Family>('select id, key, label, neighbour_keys from colour_families order by sort'),
   ]);
-  if (g.error || v.error || f.error) throw new Error('Could not load vocabulary');
-  const groups: VocabGroup[] = g.data.map((x: any) => ({
+  const groups: VocabGroup[] = g.map((x) => ({
     ...x,
-    values: v.data.filter((y: any) => y.group_id === x.id)
-      .map((y: any) => ({ id: y.id, value: y.value, family_id: y.colour_family_id, hex: y.swatch_hex })),
+    values: v.filter((y) => y.group_id === x.id)
+      .map((y) => ({ id: y.id, value: y.value, family_id: y.colour_family_id, hex: y.swatch_hex })),
   }));
-  const value = { groups, families: f.data as Family[] };
+  const value = { groups, families };
   cache = { at: Date.now(), value };
   return value;
 }

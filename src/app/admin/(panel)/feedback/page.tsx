@@ -1,5 +1,5 @@
 import { FeedbackButtons } from '@/components/admin/Buttons';
-import { db } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { VERDICT_LABEL } from '@/lib/weddings';
 
 const Attrs = ({ title, a }: { title: string; a: Record<string, string[]> | null }) => (
@@ -11,13 +11,13 @@ const Attrs = ({ title, a }: { title: string; a: Record<string, string[]> | null
 );
 
 export default async function Feedback() {
-  const { data } = await db().from('result_feedback').select('*').order('created_at', { ascending: false }).limit(200);
+  const data = await sql('select * from result_feedback order by created_at desc limit 200');
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Guest reports: "This result is wrong"</h1>
       <p className="text-sm text-muted">Confirmed attributes only; guest photos are not shown here. Your decision is saved as a label and feeds the judge examples, the threshold and the dashboard.</p>
-      {!data?.length && <p className="note">No reports yet.</p>}
-      {(data ?? []).map((f: any) => (
+      {!data.length && <p className="note">No reports yet.</p>}
+      {data.map((f) => (
         <div key={f.id} className="card space-y-2">
           <p className="text-sm">
             Shown: <span className="font-medium">{VERDICT_LABEL[f.shown_verdict] ?? f.shown_verdict}</span>

@@ -1,5 +1,5 @@
 /** Reference outfits (Raaha, partner brands, own stock, IndoFashion). Kept apart from guest data. */
-import { db, must } from './db';
+import { json, one, sql } from './db';
 import { AiError } from './ai';
 import { embedImage, embeddingModelTag, toPgVector } from './embed/server';
 import type { FeedProduct } from './feeds';
@@ -16,61 +16,63 @@ export async function upsertProducts(source: Source, brandId: string | null, pro
   let fresh = 0;
   for (const p of products) {
     if (!p.images.length) continue;
-    let q = db().from('reference_outfits').select('id').eq('source', source).eq('external_id', p.external_id);
-    q = brandId ? q.eq('brand_id', brandId) : q.is('brand_id', null);
-    const existing = must(await q.maybeSingle()) as any;
-    const fields = {
-      sku: p.sku, name: p.name.slice(0, 300), price: p.price, currency: p.currency, description: p.description,
-      permalink: p.permalink, category: p.category, updated_at: new Date().toISOString(),
-    };
-    if (existing) { await db().from('reference_outfits').update(fields).eq('id', existing.id); continue; }
-    const row = must(await db().from('reference_outfits').insert({
-      ...fields, source, brand_id: brandId, external_id: p.external_id, status: 'pending', batch_job_id: jobId,
-    }).select('id').single(), 'insert product') as any;
-    must(await db().from('reference_photos').insert(p.images.slice(0, 4).map((source_url, sort) => ({ reference_outfit_id: row.id, source_url, sort }))));
+    const fields = [p.sku, p.name.slice(0, 300), p.price, p.currency, p.description, p.permalink, p.category];
+    const existing = await one<{ id: string }>(
+      'select id from reference_outfits where source = $1 and external_id = $2 and brand_id is not distinct from $3', [source, p.external_id, brandId]);
+    if (existing) {
+      await sql(`update reference_outfits set sku = $2, name = $3, price = $4, currency = $5, description = $6, permalink = $7,
+                 category = $8, updated_at = now() where id = $1`, [existing.id, ...fields]);
+      continue;
+    }
+    const row = await one<{ id: string }>(
+      `insert into reference_outfits (source, brand_id, external_id, sku, name, price, currency, description, permalink, category, status, batch_job_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11) returning id`, [source, brandId, p.external_id, ...fields, jobId]);
+    for (const [sort, url] of p.images.slice(0, 4).entries()) {
+      await sql('insert into reference_photos (reference_outfit_id, source_url, sort) values ($1, $2, $3)', [row!.id, url, sort]);
+    }
     fresh++;
   }
   return fresh;
 }
 
-async function photoBytes(p: { storage_path: string | null; source_url: string | null }) {
-  if (p.storage_path) {
-    const { data, error } = await db().storage.from('reference').download(p.storage_path);
-    if (error || !data) throw new Error('Could not load stored reference photo');
-    return Buffer.from(await data.arrayBuffer());
-  }
-  return fetchImage(p.source_url!);
+/** Stored reference photos are kept small: they are for review and embedding, not display to guests. */
+export async function addStoredPhoto(referenceOutfitId: string, jpeg: Buffer, sort: number) {
+  await sql('insert into reference_photos (reference_outfit_id, image, sort) values ($1, $2, $3)', [referenceOutfitId, jpeg, sort]);
 }
 
 /** Step 1 (Read) on the first image and Step 2 (embed) on every image of one reference outfit. Returns the AI cost. */
 export async function processReference(id: string, jobId: string | null): Promise<number> {
-  const row = must(await db().from('reference_outfits').select('*').eq('id', id).single()) as any;
-  const photos = must(await db().from('reference_photos').select('id,storage_path,source_url,sort,embedding_model').eq('reference_outfit_id', id).order('sort')) as any[];
-  if (!photos.length) throw new Error('No photos');
-  const first = await photoBytes(photos[0]);
+  const row = await one('select name, category, dataset_label from reference_outfits where id = $1', [id]);
+  const photos = await sql<{ id: string; image: Buffer | null; source_url: string | null }>(
+    'select id, image, source_url from reference_photos where reference_outfit_id = $1 order by sort', [id]);
+  if (!row || !photos.length) throw new Error('No photos');
+  const bytes = (p: (typeof photos)[number]) => (p.image ? Promise.resolve(p.image) : fetchImage(p.source_url!));
+  const first = await bytes(photos[0]);
   const vocab = await loadVocab();
+  const ctx = { reference_outfit_id: id, batch_job_id: jobId ?? undefined };
   let read;
   try {
     read = await runRead([first], [row.name, row.category].filter(Boolean).join(' / ') || undefined, vocab);
   } catch (e: any) {
-    await logUsage(e?.usage, { reference_outfit_id: id, batch_job_id: jobId ?? undefined });
+    await logUsage(e?.usage, ctx);
     throw e;
   }
-  await logUsage(read.usage, { reference_outfit_id: id, batch_job_id: jobId ?? undefined });
+  await logUsage(read.usage, ctx);
   if (read.notOutfit) {
-    await db().from('reference_outfits').update({ status: 'not_an_outfit', updated_at: new Date().toISOString() }).eq('id', id);
+    await sql(`update reference_outfits set status = 'not_an_outfit', updated_at = now() where id = $1`, [id]);
     return read.usage.cost_usd;
   }
   // Admin corrections are never overwritten by a re-read.
-  const corrected = must(await db().from('reference_attributes').select('group_id').eq('reference_outfit_id', id).eq('admin_corrected', true)) as any[];
-  const locked = new Set(corrected.map((c) => c.group_id));
-  await db().from('reference_attributes').delete().eq('reference_outfit_id', id).eq('admin_corrected', false);
-  const rows = read.suggestions.filter((s) => !locked.has(s.group_id)).flatMap((s) => [
-    ...s.value_ids.map((value_id, i) => ({ value_id, other_text: null as string | null, position: i })),
-    ...(s.other ? [{ value_id: null as string | null, other_text: s.other, position: 99 }] : []),
-  ].map((x) => ({ ...x, reference_outfit_id: id, group_id: s.group_id, ai_confidence: s.confidence })));
-  if (rows.length) must(await db().from('reference_attributes').insert(rows), 'save reference attributes');
-  for (const p of read.proposals) await db().rpc('record_pending_value', { p_group: p.group_id, p_raw: p.value, p_by: 'ai' });
+  const locked = new Set((await sql<{ group_id: string }>(
+    'select distinct group_id from reference_attributes where reference_outfit_id = $1 and admin_corrected', [id])).map((c) => c.group_id));
+  await sql('delete from reference_attributes where reference_outfit_id = $1 and not admin_corrected', [id]);
+  for (const s of read.suggestions.filter((x) => !locked.has(x.group_id))) {
+    for (const [i, valueId] of s.value_ids.entries()) {
+      await sql('insert into reference_attributes (reference_outfit_id, group_id, value_id, ai_confidence, position) values ($1, $2, $3, $4, $5)', [id, s.group_id, valueId, s.confidence, i]);
+    }
+    if (s.other) await sql('insert into reference_attributes (reference_outfit_id, group_id, other_text, ai_confidence, position) values ($1, $2, $3, $4, 99)', [id, s.group_id, s.other, s.confidence]);
+  }
+  for (const p of read.proposals) await sql(`select record_pending_value($1, $2, 'ai')`, [p.group_id, p.value]);
 
   const group = (key: string) => vocab.groups.find((g) => g.key === key)!;
   const garmentIds = read.suggestions.find((s) => s.group_key === 'garment_type')?.value_ids ?? [];
@@ -78,22 +80,24 @@ export async function processReference(id: string, jobId: string | null): Promis
   const garmentNames = garmentIds.map((v) => group('garment_type').values.find((x) => x.id === v)?.value ?? '');
 
   for (const [i, p] of photos.entries()) {
-    const v = await embedImage(i === 0 ? first : await photoBytes(p));
-    must(await db().from('reference_photos').update({ embedding: toPgVector(v), embedding_model: embeddingModelTag() }).eq('id', p.id), 'save embedding');
+    const v = await embedImage(i === 0 ? first : await bytes(p));
+    await sql('update reference_photos set embedding = $1::vector, embedding_model = $2 where id = $3', [toPgVector(v), embeddingModelTag(), p.id]);
   }
-  must(await db().from('reference_outfits').update({
-    status: 'processed', updated_at: new Date().toISOString(),
-    ...(locked.has(group('garment_type').id) ? {} : { garment_type_id: garmentIds[0] ?? null }),
-    ...(locked.has(group('colour').id) ? {} : { colour_family_id: group('colour').values.find((x) => x.id === colourId)?.family_id ?? null }),
-    label_mismatch: row.dataset_label ? labelMismatch(row.dataset_label, garmentNames) : null,
-  }).eq('id', id), 'finish reference');
+  await sql(
+    `update reference_outfits set status = 'processed', updated_at = now(), label_mismatch = $2,
+       garment_type_id = case when $3 then garment_type_id else $4::uuid end,
+       colour_family_id = case when $5 then colour_family_id else $6::uuid end
+     where id = $1`,
+    [id, row.dataset_label ? labelMismatch(row.dataset_label, garmentNames) : null,
+      locked.has(group('garment_type').id), garmentIds[0] ?? null,
+      locked.has(group('colour').id), group('colour').values.find((x) => x.id === colourId)?.family_id ?? null]);
   return read.usage.cost_usd;
 }
 
 export async function createJob(kind: string, costCapUsd: number, params: Record<string, unknown> = {}, status: 'running' | 'pending' = 'running') {
-  return must(await db().from('batch_jobs').insert({
-    kind, cost_cap_usd: costCapUsd, params, status, started_at: status === 'running' ? new Date().toISOString() : null,
-  }).select('*').single(), 'create job') as any;
+  return (await one(
+    `insert into batch_jobs (kind, cost_cap_usd, params, status, started_at) values ($1, $2, $3::jsonb, $4, case when $4 = 'running' then now() end) returning *`,
+    [kind, costCapUsd, json(params), status]))!;
 }
 
 /**
@@ -101,56 +105,44 @@ export async function createJob(kind: string, costCapUsd: number, params: Record
  * Safe to call again at any point: progress lives in the rows, so the batch is resumable.
  */
 export async function runJob(jobId: string, deadline: number, onProgress?: (j: any) => void) {
+  const setStatus = (status: string) => one(
+    `update batch_jobs set status = $2, finished_at = case when $2 = 'done' then now() else finished_at end where id = $1 returning *`, [jobId, status]);
   for (;;) {
-    const job = must(await db().from('batch_jobs').select('*').eq('id', jobId).single()) as any;
-    if (job.status !== 'running') return job;
-    if (Number(job.cost_spent_usd) >= Number(job.cost_cap_usd)) {
-      return must(await db().from('batch_jobs').update({ status: 'cap_reached' }).eq('id', jobId).select('*').single());
-    }
+    const job = await one('select * from batch_jobs where id = $1', [jobId]);
+    if (!job || job.status !== 'running') return job;
+    if (job.cost_spent_usd >= job.cost_cap_usd) return setStatus('cap_reached');
     if (Date.now() > deadline) return job;
-    const next = must(await db().from('reference_outfits').select('id').eq('batch_job_id', jobId).eq('status', 'pending').order('created_at').limit(4)) as any[];
-    if (!next.length) {
-      return must(await db().from('batch_jobs').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', jobId).select('*').single());
-    }
+    const next = await sql<{ id: string }>(
+      `select id from reference_outfits where batch_job_id = $1 and status = 'pending' order by created_at limit 4`, [jobId]);
+    if (!next.length) return setStatus('done');
     const results = await Promise.all(next.map(async (r) => {
-      try { return { ok: true, cost: await processReference(r.id, jobId) }; }
+      try { return { ok: true, cost: await processReference(r.id, jobId), error: '' }; }
       catch (e: any) {
-        await db().from('reference_outfits').update({ status: 'failed' }).eq('id', r.id);
+        await sql(`update reference_outfits set status = 'failed' where id = $1`, [r.id]);
         return { ok: false, cost: Number(e?.usage?.cost_usd ?? 0), error: e instanceof AiError ? e.message : String(e?.message ?? e) };
       }
     }));
     const failed = results.filter((r) => !r.ok);
-    const updated = must(await db().from('batch_jobs').update({
-      done: job.done + results.length - failed.length, failed: job.failed + failed.length,
-      cost_spent_usd: Number(job.cost_spent_usd) + results.reduce((s, r) => s + r.cost, 0),
-      ...(failed.length ? { last_error: (failed[0] as any).error?.slice(0, 300) } : {}),
-    }).eq('id', jobId).select('*').single()) as any;
+    const updated = await one(
+      `update batch_jobs set done = done + $2, failed = failed + $3, cost_spent_usd = cost_spent_usd + $4,
+         last_error = coalesce($5, last_error) where id = $1 returning *`,
+      [jobId, results.length - failed.length, failed.length, results.reduce((s, r) => s + r.cost, 0), failed[0]?.error.slice(0, 300) ?? null]);
     onProgress?.(updated);
     // Stop a job that fails on everything rather than burning through the queue.
-    if (updated.failed >= 20 && updated.done === 0) {
-      return must(await db().from('batch_jobs').update({ status: 'failed' }).eq('id', jobId).select('*').single());
-    }
+    if (updated.failed >= 20 && updated.done === 0) return setStatus('failed');
   }
 }
 
 export async function setJobTotal(jobId: string) {
-  const { count } = await db().from('reference_outfits').select('id', { count: 'exact', head: true }).eq('batch_job_id', jobId);
-  await db().from('batch_jobs').update({ total: count ?? 0 }).eq('id', jobId);
-  return count ?? 0;
+  const r = await one<{ total: number }>(
+    'update batch_jobs set total = (select count(*) from reference_outfits where batch_job_id = $1) where id = $1 returning total', [jobId]);
+  return r?.total ?? 0;
 }
 
-/** One-click removal: every product, stored image and embedding of a brand. */
+/** One-click removal: every product, stored image and embedding of a brand, and its permission file. */
 export async function removeBrand(brandId: string) {
-  const outfits = must(await db().from('reference_outfits').select('id').eq('brand_id', brandId)) as any[];
-  for (let i = 0; i < outfits.length; i += 100) {
-    const ids = outfits.slice(i, i + 100).map((o) => o.id);
-    const photos = must(await db().from('reference_photos').select('storage_path').in('reference_outfit_id', ids).not('storage_path', 'is', null)) as any[];
-    if (photos.length) await db().storage.from('reference').remove(photos.map((p) => p.storage_path));
-    await db().from('label_pairs').delete().eq('left_kind', 'reference').in('left_id', ids);
-    await db().from('label_pairs').delete().eq('right_kind', 'reference').in('right_id', ids);
-  }
-  const brand = must(await db().from('partner_brands').select('permission_file_path').eq('id', brandId).maybeSingle()) as any;
-  if (brand?.permission_file_path) await db().storage.from('permissions').remove([brand.permission_file_path]);
-  must(await db().from('partner_brands').delete().eq('id', brandId), 'delete brand'); // cascades to outfits, photos, attributes
-  return outfits.length;
+  const ids = (await sql<{ id: string }>('select id from reference_outfits where brand_id = $1', [brandId])).map((o) => o.id);
+  await sql(`delete from label_pairs where (left_kind = 'reference' and left_id = any($1::uuid[])) or (right_kind = 'reference' and right_id = any($1::uuid[]))`, [ids]);
+  await sql('delete from partner_brands where id = $1', [brandId]);   // cascades to outfits, photos, embeddings, attributes
+  return ids.length;
 }

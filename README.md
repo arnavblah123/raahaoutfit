@@ -3,7 +3,7 @@
 Guests of the same wedding add what they plan to wear to each function. Each guest is told, privately, whether someone else at that function is wearing the same or a very similar outfit. She never sees who, and never sees the other photo. It is not a shop: there is no catalogue management, billing or checkout.
 
 - **App:** Next.js (App Router, TypeScript, Tailwind), deployed on Vercel. Mobile-first.
-- **Data:** Supabase Postgres with pgvector, private Storage buckets, row-level security, scheduled jobs.
+- **Data:** one Neon Postgres database with pgvector. Photos are stored in the database too, so Neon is the only service besides Vercel and the AI provider. Scheduled jobs run on Vercel Cron.
 - **AI:** one module (`src/lib/ai`) holds every model call. Model names and keys are environment variables.
 
 ## How it works
@@ -12,7 +12,7 @@ Guests of the same wedding add what they plan to wear to each function. Each gue
 |---|---|---|
 | Read | A small vision model returns attributes with a confidence each, an outfit bounding box that excludes the face, and a not-an-outfit flag. Low-confidence values come back blank. | `src/lib/pipeline/read.ts` |
 | Confirm | The guest picks the colour from swatches (never pre-selected) and can edit everything else. Matching runs only after this. | `src/components/AddOutfit.tsx` |
-| Shortlist | Both photos are embedded with Marqo-FashionSigLIP and stored in pgvector. Top 5 by cosine similarity in the same function, plus any outfit sharing a garment type and the colour family. | `shortlist_outfits` in `0004_functions.sql` |
+| Shortlist | Both photos are embedded with Marqo-FashionSigLIP and stored in pgvector. Top 5 by cosine similarity in the same function, plus any outfit sharing a garment type and the colour family. | `shortlist_outfits` in `0003_functions.sql` |
 | Judge | For each shortlisted pair above the threshold, a stronger vision model sees both outfits' photos and confirmed attributes and returns verdict, confidence, reason and missing evidence. Cached per pair. | `src/lib/pipeline/match.ts` |
 | More photos | A clash verdict below high confidence asks for the specific photo named, up to 2 extra rounds, then shows "Possible clash". If the earlier guest's photos are the limit, she gets a neutral "add a clearer photo" request. | `recomputeResult` |
 
@@ -20,17 +20,14 @@ Guests read one table for results, `outfit_results`, which has a verdict and a r
 
 ## Setup
 
-### 1. Supabase
+### 1. Neon
 
-1. Create a project. Under Database > Extensions enable `vector`, `pg_cron` and `pg_net`.
-2. Run the migrations in `supabase/migrations` in order (`supabase db push`, or paste each file into the SQL editor). They create the tables, policies, private buckets, SQL functions, seed vocabulary and cron schedule.
-3. Authentication > URL configuration: set the Site URL to your app URL and add `https://YOUR-APP/admin/auth/callback` to the redirect URLs. Admin sign-in uses an email magic link.
-4. After the app is deployed, tell the scheduled jobs where it lives (SQL editor):
-   ```sql
-   insert into private_config (key, value) values
-     ('app_url', 'https://YOUR-APP'), ('cron_secret', 'THE SAME VALUE AS CRON_SECRET')
-   on conflict (key) do update set value = excluded.value;
+1. In Vercel, open your project's Storage tab and add **Neon**. This creates the database and sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED` on the project. (Or create a database at neon.tech and copy both connection strings yourself.)
+2. Apply the schema. With the two variables in `.env.local`:
+   ```bash
+   npm run db:migrate
    ```
+   This runs the files in `db/migrations` in order, once each: tables, row-level security, SQL functions, seed vocabulary. It enables the `vector` extension itself.
 
 ### 2. Environment variables
 
@@ -38,12 +35,12 @@ Copy `.env.example` to `.env.local` for local work, and set the same values in V
 
 | Variable | Purpose |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project URL and anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-side key. Never exposed to the browser |
-| `SUPABASE_JWT_SECRET` | Project JWT secret (HS256). The server uses it to mint a 10-minute token per guest so row-level security applies to everything she reads |
+| `DATABASE_URL` | Neon pooled connection string. Used by the app |
+| `DATABASE_URL_UNPOOLED` | Neon direct connection string. Used only by `npm run db:migrate` |
 | `NEXT_PUBLIC_APP_URL` | Public URL of the app, used in share and recovery links |
-| `ADMIN_EMAILS` | Comma-separated emails allowed into `/admin` |
-| `CRON_SECRET` | Shared secret for the scheduled-job routes |
+| `ADMIN_PASSWORD` | Password for `/admin` |
+| `SESSION_SECRET` | Long random string that signs the admin session cookie |
+| `CRON_SECRET` | Vercel Cron sends it to the scheduled-job routes as a bearer token |
 | `ANTHROPIC_API_KEY` | Key for the Read and Judge models |
 | `AI_READ_MODEL`, `AI_JUDGE_MODEL`, `AI_VOCAB_MODEL` | Model names. Defaults: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` |
 | `AI_READ_EFFORT`, `AI_JUDGE_EFFORT` | Effort level per step (`low`, `medium`, `high`; `none` to omit) |
@@ -81,30 +78,37 @@ Imports can also be run from your own machine with the scripts below, which avoi
 
 - The upload screen has a crop tool that asks the guest to crop out her face or use a hanger, daylight / no flash / no filters guidance, and a plain-language privacy note.
 - The browser re-encodes the photo before upload, which already drops EXIF. The server decodes it again, crops to the outfit bounding box, strips metadata and stores only the crop. The original exists only in memory and is never written anywhere.
-- Photos are in a private bucket. Links are signed for 10 minutes with the guest's own scoped token, and the storage policy allows her only her own folder.
+- Photos live in the database (`outfit_photos.image`), not in a public file store. There are no photo URLs that work without the guest's cookie.
+- **Row-level security:** the app connects as the database owner. For everything a guest reads, the server switches to a restricted role (`app_guest`) inside a transaction and sets her guest id. That role can only `SELECT`, only on guest-facing tables, and the policies return only her own rows and photos. The pair table, reference data, settings and usage logs are not readable by it at all.
 - A guest can delete an outfit at any time: photos, embeddings, attributes, pairs and result.
-- Seven days after the wedding date a daily job deletes photos, embeddings, attributes and guest names, and keeps anonymous counts. If the guest ticked the consent box, the cropped photos and attributes are kept in a separate bucket with no link to her or the wedding.
+- Seven days after the wedding date a daily job deletes photos, embeddings, attributes and guest names, and keeps anonymous counts. If the guest ticked the consent box, the cropped photos and attributes are kept in separate tables with no link to her or the wedding.
 - Admins see guest photos only where the guest consented.
 - IndoFashion rows can never be shown to guests: `guest_visible` is a generated column that is false for that source, and "similar styles" filters on it.
 
 ## Scheduled jobs
 
-Supabase cron (migration `0006_cron.sql`) calls `/api/cron/<job>` with the shared secret.
+`vercel.json` schedules these on Vercel Cron, which calls `/api/cron/<job>` with `CRON_SECRET`.
 
 | Job | When | What |
 |---|---|---|
 | `purge` | Daily | Retention deletion; removes uploads abandoned before confirmation |
 | `raaha` | Nightly | Pulls the Raaha WooCommerce feed, queues new products under a cost cap, removes products no longer listed |
-| `reference-worker` | Every 5 minutes | Advances running batch jobs |
+| `reference-worker` | Daily | Advances running batch jobs |
 | `vocab` | Daily | LLM pass that suggests merges for pending vocabulary values |
 | `threshold` | Weekly | Recalculates the shortlist threshold from admin labels and logs the change |
+
+Vercel's Hobby plan allows cron jobs once a day at most, which is why the worker is daily. Batch jobs also advance for a few minutes whenever you start or resume one in the admin, and `npm run worker` on your own machine runs them to completion. On a Pro plan you can change the worker schedule to every few minutes.
+
+## Database size
+
+Because photos are stored in Postgres, they count towards Neon's storage. A cropped guest photo is roughly 100 to 250 KB, and guest photos are deleted 7 days after each wedding. Raaha and partner products are not copied (their images stay on the brand's site). Own-stock and IndoFashion images are stored; IndoFashion copies are reduced to 768 px, so 10,000 of them come to several hundred MB. Neon's free plan has a small storage allowance, so the 10,000 batch will likely need a paid plan.
 
 ## Reference data
 
 Everything is in `reference_outfits`, separate from guest data, tagged by `source`.
 
 - **Raaha:** nightly job, or `npm run import:raaha -- --cap 1`, or the button on `/admin/imports`.
-- **Partner brands:** `/admin/brands`. Shopify `products.json`, WooCommerce Store API, or CSV. The importer refuses to run unless a permission date plus a note or file is on record. One click removes a brand's products, stored images and embeddings. Each brand has its own switch for appearing in "See similar styles".
+- **Partner brands:** `/admin/brands`. Shopify `products.json`, WooCommerce Store API, or CSV. The importer refuses to run unless a permission date plus a note or file is on record. One click removes a brand's products, images and embeddings. Each brand has its own switch for appearing in "See similar styles".
 - **Own stock:** `/admin/stock`, several photos grouped as one outfit.
 - **IndoFashion:** see below.
 
@@ -124,15 +128,15 @@ That runs the pilot: 500 images sampled evenly across the women's garment classe
 npm run import:indofashion -- --root data/indofashion --metadata data/indofashion/train_data.json --n 10000 --register-only
 ```
 
-The batch then waits on `/admin/imports`, which shows the estimated cost from the pilot, lets you set a cap and start it, and shows a progress bar. Process it with the cron worker or with:
+The batch then waits on `/admin/imports`, which shows the estimated cost from the pilot, lets you set a cap and start it, and shows a progress bar. Process it with:
 
 ```bash
-npx tsx scripts/worker.ts
+npm run worker
 ```
 
 ## Admin
 
-`/admin` (magic-link sign-in, allowlisted emails).
+`/admin`, protected by `ADMIN_PASSWORD`. Failed attempts are rate limited.
 
 - **Dashboard:** accuracy of the current pipeline against your labels (updates as you label), cost per outfit, correction rate, threshold history.
 - **Review:** grid of reference images with inline-editable attributes. Every correction is saved. Shows label mismatches and the share of blank values per attribute. One-click CSV export of the reference dataset.
@@ -148,7 +152,8 @@ Learning uses only guest-confirmed or admin-confirmed data. The three most simil
 | `npm run eval -- --dir eval-sets` | Given folders of same-outfit photo sets, reports how often the true match is in the top 5. Needs no database or AI key |
 | `npm run test:pairs -- --dir samples/pairs` | Runs sample pairs through Read, embed and Judge and prints verdicts, token counts and cost. Needs only `ANTHROPIC_API_KEY` |
 | `npm run export:training -- --out exports` | Consented photos and admin-confirmed pairs for fine-tuning |
-| `npm run import:raaha`, `npm run import:indofashion`, `npx tsx scripts/worker.ts` | Imports and the batch worker |
+| `npm run db:migrate` | Applies new database migrations |
+| `npm run import:raaha`, `npm run import:indofashion`, `npm run worker` | Imports and the batch worker |
 | `npm run embed:server` | Embedding server for a CPU host |
 
 Folder layouts are documented at the top of each script.
@@ -162,11 +167,25 @@ npm test
 Unit tests for the result logic, accuracy maths, feed parsers and IndoFashion mapping.
 
 ```bash
-psql -v ON_ERROR_STOP=1 -f supabase/tests/smoke.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/smoke.sql
 ```
 
-Runs against a scratch database with the migrations applied, inside a transaction that is rolled back. Checks the shortlist, colour map, similar styles, vocabulary promotion and the row-level security policies.
+Database checks on a scratch database with the migrations applied, inside a transaction that is rolled back: shortlist, colour map, similar styles, vocabulary promotion, and what the restricted guest role can and cannot read.
+
+**End to end.** `tests/e2e/run.mjs` drives the real app in a phone-sized browser: create a wedding, three guests upload, clash and extra-photo rounds, photo privacy between guests, feedback, delete, recovery link, the admin pages, CSV export and the retention purge. The AI and embedding services are replaced by local stand-ins (`tests/e2e/stubs.mjs`), so it needs no keys. It needs a scratch Postgres with pgvector and Playwright (`npm i -D playwright`):
+
+```bash
+node tests/e2e/stubs.mjs
+```
+
+```bash
+DATABASE_URL=postgres://... ADMIN_PASSWORD=test SESSION_SECRET=0123456789abcdef0123456789abcdef CRON_SECRET=test ANTHROPIC_API_KEY=stub ANTHROPIC_BASE_URL=http://localhost:4801 EMBED_URL=http://localhost:4802 NEXT_PUBLIC_EMBED_MODE=server NEXT_PUBLIC_APP_URL=http://localhost:3320 sh -c 'npm run db:migrate && npm run build && PORT=3320 npm start'
+```
+
+```bash
+DATABASE_URL=postgres://... ADMIN_PASSWORD=test CRON_SECRET=test npm run test:e2e
+```
 
 ## Later
 
-- **Google sign-in:** `guests.auth_user_id` is reserved for it. The policies key on a `guest_id` claim, so a signed-in session only needs to carry the same claim.
+- **Google sign-in:** `guests.auth_user_id` is reserved for it. The policies key on the guest id the server sets, so a signed-in session only needs to resolve to the same guest.

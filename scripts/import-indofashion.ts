@@ -9,7 +9,7 @@
  *   npm run import:indofashion -- --root data/indofashion --metadata data/indofashion/train_data.json --n 500 --cap 2
  * Batch of 10,000 (registered only; it waits for approval and a cost cap on the admin Imports page):
  *   npm run import:indofashion -- --root data/indofashion --metadata data/indofashion/train_data.json --n 10000 --register-only
- * then run `npx tsx scripts/worker.ts` (or let the cron worker do it). Both are resumable.
+ * then run `npm run worker` (or let the daily cron worker do it). Both are resumable.
  *
  * --metadata is the dataset's JSON-lines file with image_path and class_label per row.
  * Without --metadata, --root is read as one folder per class.
@@ -18,10 +18,10 @@ import { args, bar, usd } from './_env';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { createHash } from 'crypto';
 import path from 'path';
-import { db, must } from '../src/lib/db';
-import { normalise } from '../src/lib/images';
+import { closeDb, one, sql } from '../src/lib/db';
+import { forModel, normalise } from '../src/lib/images';
 import { INDOFASHION_CLASSES, canonicalClass } from '../src/lib/indofashion';
-import { createJob, runJob, setJobTotal } from '../src/lib/reference';
+import { addStoredPhoto, createJob, runJob, setJobTotal } from '../src/lib/reference';
 
 const a = args();
 if (!a.root) { console.error('Usage: --root <dataset dir> [--metadata <jsonl>] [--n 500] [--cap 2] [--register-only] [--seed 1]'); process.exit(1); }
@@ -58,23 +58,19 @@ const picked = classes.flatMap((c) => byClass.get(c)!.sort((x, y) => (rank(x.fil
 console.log(`Classes: ${classes.map((c) => `${c} (${byClass.get(c)!.length})`).join(', ')}`);
 console.log(`Sampling ${picked.length} images, about ${per} per class. Men's classes and accessories are skipped.`);
 
-// 3. Register rows and upload images to the private reference bucket.
+// 3. Register rows and store a reduced copy of each image in the database (internal use only).
 const registerOnly = a['register-only'] === 'true';
 const job = await createJob('indofashion', Number(a.cap ?? 2), { n: picked.length, seed, pilot: !registerOnly }, registerOnly ? 'pending' : 'running');
 let added = 0;
 for (const [i, p] of picked.entries()) {
-  bar(i + 1, picked.length, 'uploading');
-  const external_id = path.relative(a.root, p.file);
-  const exists = must(await db().from('reference_outfits').select('id').eq('source', 'indofashion').eq('external_id', external_id).maybeSingle());
-  if (exists || !existsSync(p.file)) continue;
-  const { jpeg } = await normalise(readFileSync(p.file));
-  const row = must(await db().from('reference_outfits').insert({
-    source: 'indofashion', external_id, dataset_label: p.label, category: p.label, status: 'pending', batch_job_id: job.id,
-  }).select('id').single()) as any;
-  const storage_path = `indofashion/${row.id}.jpg`;
-  const up = await db().storage.from('reference').upload(storage_path, jpeg, { contentType: 'image/jpeg' });
-  if (up.error) throw new Error(up.error.message);
-  must(await db().from('reference_photos').insert({ reference_outfit_id: row.id, storage_path, sort: 0 }));
+  bar(i + 1, picked.length, 'storing');
+  const externalId = path.relative(a.root, p.file);
+  if (!existsSync(p.file) || await one(`select 1 from reference_outfits where source = 'indofashion' and external_id = $1`, [externalId])) continue;
+  const jpeg = await forModel((await normalise(readFileSync(p.file))).jpeg, 768);
+  const row = (await one<{ id: string }>(
+    `insert into reference_outfits (source, external_id, dataset_label, category, status, batch_job_id) values ('indofashion', $1, $2, $2, 'pending', $3) returning id`,
+    [externalId, p.label, job.id]))!;
+  await addStoredPhoto(row.id, jpeg, 0);
   added++;
 }
 await setJobTotal(job.id);
@@ -83,10 +79,10 @@ console.log(`\nRegistered ${added} new images under job ${job.id}.`);
 if (registerOnly) {
   console.log('The batch is waiting for approval. Open /admin/imports to see the cost estimate, set a cap and start it.');
 } else {
-  const done: any = await runJob(job.id, Date.now() + 12 * 3600_000, (j) => bar(j.done + j.failed, j.total, `spent ${usd(Number(j.cost_spent_usd))} of ${usd(Number(j.cost_cap_usd))}`));
-  console.log(`\n${done.status}: ${done.done} processed, ${done.failed} failed, spent ${usd(Number(done.cost_spent_usd))}.`);
-  const { data } = await db().rpc('label_mismatch_summary');
-  console.table(data);
-  if (done.done) console.log(`Estimated AI cost for 10,000 images: ${usd((Number(done.cost_spent_usd) / done.done) * 10000)}`);
+  const done: any = await runJob(job.id, Date.now() + 12 * 3600_000, (j) => bar(j.done + j.failed, j.total, `spent ${usd(j.cost_spent_usd)} of ${usd(j.cost_cap_usd)}`));
+  console.log(`\n${done.status}: ${done.done} processed, ${done.failed} failed, spent ${usd(done.cost_spent_usd)}.`);
+  console.table(await sql('select * from label_mismatch_summary()'));
+  if (done.done) console.log(`Estimated AI cost for 10,000 images: ${usd((done.cost_spent_usd / done.done) * 10000)}`);
   console.log('Review the mismatches at /admin/reference?source=indofashion&show=mismatch');
 }
+await closeDb();

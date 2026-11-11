@@ -1,26 +1,25 @@
 import { AutoRefresh, JobControls, RaahaRun } from '@/components/admin/Buttons';
-import { db } from '@/lib/db';
+import { one, sql } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 
 const usd = (v: unknown, d = 2) => `$${Number(v ?? 0).toFixed(d)}`;
 
 export default async function Imports() {
   const s = await getSettings(true);
-  const count = async (source: string, status?: string) => {
-    let q = db().from('reference_outfits').select('id', { count: 'exact', head: true }).eq('source', source);
-    if (status) q = q.eq('status', status);
-    return (await q).count ?? 0;
-  };
-  const [jobs, raahaDone, raahaPending, indoDone, indoPending, mismatch, indoCost] = await Promise.all([
-    db().from('batch_jobs').select('*').order('created_at', { ascending: false }).limit(15),
-    count('raaha', 'processed'), count('raaha', 'pending'), count('indofashion', 'processed'), count('indofashion', 'pending'),
-    db().rpc('label_mismatch_summary'),
-    db().from('batch_jobs').select('done,cost_spent_usd').eq('kind', 'indofashion'),
+  const [jobs, c, mismatch] = await Promise.all([
+    sql('select * from batch_jobs order by created_at desc limit 15'),
+    one(`select count(*) filter (where source = 'raaha' and status = 'processed') as raaha_done,
+                count(*) filter (where source = 'raaha' and status = 'pending') as raaha_pending,
+                count(*) filter (where source = 'indofashion' and status = 'processed') as indo_done,
+                count(*) filter (where source = 'indofashion' and status = 'pending') as indo_pending,
+                (select coalesce(sum(cost_spent_usd), 0) from batch_jobs where kind = 'indofashion') as spent,
+                (select coalesce(sum(done), 0) from batch_jobs where kind = 'indofashion') as processed
+         from reference_outfits`),
+    sql('select * from label_mismatch_summary()'),
   ]);
-  const spent = (indoCost.data ?? []).reduce((a: number, j: any) => a + Number(j.cost_spent_usd), 0);
-  const processed = (indoCost.data ?? []).reduce((a: number, j: any) => a + j.done, 0);
+  const { raaha_done: raahaDone, raaha_pending: raahaPending, indo_done: indoDone, indo_pending: indoPending, spent, processed } = c;
   const perImage = processed ? spent / processed : null;
-  const anyRunning = (jobs.data ?? []).some((j: any) => j.status === 'running');
+  const anyRunning = jobs.some((j) => j.status === 'running');
 
   return (
     <div className="space-y-8">
@@ -39,12 +38,12 @@ export default async function Imports() {
           <div className="card"><p className="text-sm text-muted">Estimate for 10,000 images</p><p className="text-2xl font-semibold">{perImage == null ? 'Run the pilot first' : usd(perImage * 10000)}</p></div>
           <div className="card"><p className="text-sm text-muted">Spent so far</p><p className="text-2xl font-semibold">{usd(spent)}</p></div>
         </div>
-        {(mismatch.data as any[])?.length > 0 && (
+        {mismatch.length > 0 && (
           <div className="card overflow-x-auto">
             <p className="mb-2 text-sm font-medium">Dataset label against the garment type the AI picked</p>
             <table className="w-full text-sm">
               <thead><tr className="text-left text-muted"><th className="py-1">Dataset label</th><th>Images</th><th>Mismatches</th><th>Not comparable</th><th>Mismatch rate</th></tr></thead>
-              <tbody>{(mismatch.data as any[]).map((m) => (
+              <tbody>{mismatch.map((m) => (
                 <tr key={m.dataset_label} className="border-t border-line">
                   <td className="py-1">{m.dataset_label}</td><td>{m.total}</td><td>{m.mismatches}</td><td>{m.not_comparable}</td>
                   <td>{m.total - m.not_comparable ? `${Math.round((m.mismatches / (m.total - m.not_comparable)) * 100)}%` : 'n/a'}</td>
@@ -58,8 +57,8 @@ export default async function Imports() {
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Batch jobs</h2>
-        {!jobs.data?.length && <p className="note">No jobs yet.</p>}
-        {(jobs.data ?? []).map((j: any) => {
+        {!jobs.length && <p className="note">No jobs yet.</p>}
+        {jobs.map((j) => {
           const share = j.total ? Math.min(1, (j.done + j.failed) / j.total) : 0;
           return (
             <div key={j.id} className="card space-y-2">

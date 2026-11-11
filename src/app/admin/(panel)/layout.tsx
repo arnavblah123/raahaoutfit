@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getAdmin } from '@/lib/admin';
+import { isAdmin } from '@/lib/admin';
 import { signOut } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -12,14 +12,13 @@ const NAV = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const email = await getAdmin();
-  if (!email) redirect('/admin/login');
+  if (!(await isAdmin())) redirect('/admin/login');
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-16">
       <header className="flex flex-wrap items-center justify-between gap-2 py-4">
         <Link href="/admin" className="font-[family-name:var(--font-display)] text-xl font-semibold text-brand">Outfit Clash admin</Link>
         <form action={async () => { 'use server'; await signOut(); redirect('/admin/login'); }}>
-          <button className="text-sm text-muted underline">{email} · Sign out</button>
+          <button className="text-sm text-muted underline">Sign out</button>
         </form>
       </header>
       <nav className="-mx-4 mb-6 flex gap-1 overflow-x-auto border-b border-line px-4 pb-2">

@@ -109,7 +109,7 @@ export function BrandForm({ brand }: { brand?: any }) {
         <input name="feed_url" className="field" placeholder="https://brand.com/products.json" defaultValue={brand?.feed_url ?? ''} /></div>
       <div><label className="label">Permission received on</label><input name="permission_date" type="date" className="field" defaultValue={brand?.permission_date ?? ''} /></div>
       <div><label className="label">Permission email or letter (file)</label><input name="permission_file" type="file" className="field" />
-        {brand?.permission_file_path && <p className="mt-1 text-xs text-muted">A file is already on record.</p>}</div>
+        {brand?.has_file && <p className="mt-1 text-xs text-muted">On record: {brand.permission_file_name}</p>}</div>
       <div className="md:col-span-2"><label className="label">Permission note (who agreed, and to what)</label>
         <textarea name="permission_note" className="field" rows={2} defaultValue={brand?.permission_note ?? ''} /></div>
       <div className="flex items-center gap-3 md:col-span-2"><button className="btn-primary btn-sm" disabled={a.pending}>{brand ? 'Save changes' : 'Add brand'}</button><Msg text={a.msg} /></div>

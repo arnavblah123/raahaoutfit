@@ -1,0 +1,9 @@
+{
+  "crons": [
+    { "path": "/api/cron/purge", "schedule": "15 20 * * *" },
+    { "path": "/api/cron/raaha", "schedule": "30 20 * * *" },
+    { "path": "/api/cron/reference-worker", "schedule": "0 21 * * *" },
+    { "path": "/api/cron/vocab", "schedule": "30 21 * * *" },
+    { "path": "/api/cron/threshold", "schedule": "0 22 * * 0" }
+  ]
+}

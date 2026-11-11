@@ -2,59 +2,49 @@
 import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
-import { authClient, getAdmin } from '@/lib/admin';
-import { db, must } from '@/lib/db';
-import { env } from '@/lib/env';
+import { adminLogin, adminLogout, isAdmin } from '@/lib/admin';
+import { isUuid, one, sql, transaction } from '@/lib/db';
 import { normalise } from '@/lib/images';
 import { labelMismatch } from '@/lib/indofashion';
 import { loadAttributes, type ItemKind, type ItemRef } from '@/lib/items';
 import { PermissionMissing, brandImport, raahaImport, recalcThreshold, vocabMergePass } from '@/lib/jobs';
 import { judgeItems } from '@/lib/pipeline/match';
-import { createJob, removeBrand, runJob, setJobTotal } from '@/lib/reference';
+import { addStoredPhoto, createJob, removeBrand, runJob, setJobTotal } from '@/lib/reference';
 import { DEFAULTS, getSettings, setSetting, type Settings } from '@/lib/settings';
 import { loadVocab } from '@/lib/vocab';
 import { clean } from '@/lib/weddings';
 
+const ADMIN = 'admin';
 async function admin() {
-  const email = await getAdmin();
-  if (!email) throw new Error('Admin sign-in required');
-  return email;
+  if (!(await isAdmin())) throw new Error('Admin sign-in required');
+  return ADMIN;
 }
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 const fail = (e: unknown): { ok: false; error: string } => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
 
 // ------------------------------------------------------------------ login
-export async function sendMagicLink(emailRaw: string): Promise<Result> {
-  const email = emailRaw.trim().toLowerCase();
-  // Same answer whether or not the address is allowed, so the list cannot be probed.
-  if (env.adminEmails.includes(email)) {
-    const { error } = await (await authClient()).auth.signInWithOtp({ email, options: { emailRedirectTo: `${env.appUrl}/admin/auth/callback` } });
-    if (error) return { ok: false, error: 'Could not send the email. Try again in a minute.' };
-  }
-  return { ok: true };
+export async function signIn(password: string): Promise<Result> {
+  const error = await adminLogin(String(password ?? ''));
+  return error ? { ok: false, error } : { ok: true };
 }
-export async function signOut() { await (await authClient()).auth.signOut(); }
+export async function signOut() { await adminLogout(); }
 
 // ------------------------------------------------------------------ item cards (photos + attributes)
 export type Card = { kind: ItemKind; id: string; title: string; images: string[]; attributes: Record<string, string[]> };
 
 async function card(ref: ItemRef): Promise<Card> {
-  const sign = async (bucket: string, path: string) => (await db().storage.from(bucket).createSignedUrl(path, 900)).data?.signedUrl ?? '';
-  let images: string[] = [], title = '';
+  let images: string[] = [], title = 'Consented guest photo';
   if (ref.kind === 'reference') {
-    const row = must(await db().from('reference_outfits').select('name,source, reference_photos(storage_path,source_url,sort)').eq('id', ref.id).single()) as any;
-    title = row.name || row.source;
-    images = await Promise.all(row.reference_photos.sort((a: any, b: any) => a.sort - b.sort).slice(0, 2)
-      .map((p: any) => (p.storage_path ? sign('reference', p.storage_path) : p.source_url)));
+    const row = await one('select name, source from reference_outfits where id = $1', [ref.id]);
+    title = row?.name || row?.source || '';
+    const photos = await sql('select id, source_url, image is not null as stored from reference_photos where reference_outfit_id = $1 order by sort limit 2', [ref.id]);
+    images = photos.map((p) => (p.stored ? `/api/admin/photo/reference/${p.id}` : p.source_url));
   } else if (ref.kind === 'training') {
-    const rows = must(await db().from('training_photos').select('storage_path').eq('training_outfit_id', ref.id)) as any[];
-    images = await Promise.all(rows.slice(0, 2).map((p) => sign('training', p.storage_path)));
-    title = 'Consented guest photo';
+    images = (await sql('select id from training_photos where training_outfit_id = $1 limit 2', [ref.id])).map((p) => `/api/admin/photo/training/${p.id}`);
   } else {
-    // Guest photos reach the admin only when the guest ticked the consent box.
-    const o = must(await db().from('outfits').select('keep_for_training, outfit_photos(kind,storage_path)').eq('id', ref.id).single()) as any;
-    if (o.keep_for_training) images = await Promise.all(o.outfit_photos.slice(0, 2).map((p: any) => sign('outfits', p.storage_path)));
-    title = 'Consented guest photo';
+    // Guest photos reach the admin only when the guest ticked the consent box (the photo route checks again).
+    images = (await sql(`select p.id from outfit_photos p join outfits o on o.id = p.outfit_id
+                         where o.id = $1 and o.keep_for_training order by (p.kind = 'full') desc limit 2`, [ref.id])).map((p) => `/api/admin/photo/guest/${p.id}`);
   }
   return { ...ref, title, images: images.filter(Boolean), attributes: await loadAttributes(ref) };
 }
@@ -63,41 +53,42 @@ async function card(ref: ItemRef): Promise<Card> {
 export async function saveReferenceAttributes(id: string, selection: { group_id: string; value_ids: string[]; other: string }[]): Promise<Result<{ corrected: number }>> {
   try {
     const email = await admin();
+    if (!isUuid(id)) throw new Error('Not found');
     const vocab = await loadVocab();
-    const existing = must(await db().from('reference_attributes').select('group_id,value_id,other_text').eq('reference_outfit_id', id)) as any[];
+    const existing = await sql('select group_id, value_id, other_text from reference_attributes where reference_outfit_id = $1', [id]);
+    const row = await one('select dataset_label from reference_outfits where id = $1', [id]);
+    if (!row) throw new Error('Not found');
     let corrected = 0;
-    const patch: Record<string, unknown> = { reviewed_at: new Date().toISOString() };
-    for (const g of vocab.groups) {
-      const inc = selection.find((s) => s.group_id === g.id);
-      if (!inc) continue;
-      const ids = inc.value_ids.filter((v) => g.values.some((x) => x.id === v));
-      const other = clean(inc.other, 120);
-      const before = existing.filter((e) => e.group_id === g.id);
-      const beforeKey = JSON.stringify([before.map((b) => b.value_id).filter(Boolean).sort(), before.map((b) => b.other_text).filter(Boolean).join(', ')]);
-      const afterKey = JSON.stringify([[...ids].sort(), other]);
-      if (beforeKey === afterKey) continue;
-      corrected++;
-      const name = (v: string) => g.values.find((x) => x.id === v)?.value;
-      must(await db().from('attribute_corrections').insert({
-        reference_outfit_id: id, group_id: g.id, admin_email: email,
-        before: { values: before.map((b) => (b.value_id ? name(b.value_id) : b.other_text)) },
-        after: { values: [...ids.map(name), ...(other ? [other] : [])] },
-      }), 'save correction');
-      await db().from('reference_attributes').delete().eq('reference_outfit_id', id).eq('group_id', g.id);
-      const rows = [
-        ...ids.map((value_id, i) => ({ value_id, other_text: null as string | null, position: i })),
-        ...(other ? [{ value_id: null as string | null, other_text: other, position: 99 }] : []),
-      ].map((x) => ({ ...x, reference_outfit_id: id, group_id: g.id, admin_corrected: true }));
-      if (rows.length) must(await db().from('reference_attributes').insert(rows), 'save attributes');
-      if (other && !g.free_text) await db().rpc('record_pending_value', { p_group: g.id, p_raw: other, p_by: 'admin' });
-      if (g.key === 'garment_type') {
-        patch.garment_type_id = ids[0] ?? null;
-        const row = must(await db().from('reference_outfits').select('dataset_label').eq('id', id).single()) as any;
-        if (row.dataset_label) patch.label_mismatch = labelMismatch(row.dataset_label, ids.map((v) => name(v) ?? ''));
+    await transaction(async (q) => {
+      for (const g of vocab.groups) {
+        const inc = selection.find((s) => s.group_id === g.id);
+        if (!inc) continue;
+        const ids = inc.value_ids.filter((v) => g.values.some((x) => x.id === v));
+        const other = clean(inc.other, 120);
+        const before = existing.filter((e) => e.group_id === g.id);
+        const beforeKey = JSON.stringify([before.map((b) => b.value_id).filter(Boolean).sort(), before.map((b) => b.other_text).filter(Boolean).join(', ')]);
+        if (beforeKey === JSON.stringify([[...ids].sort(), other])) continue;
+        corrected++;
+        const name = (v: string) => g.values.find((x) => x.id === v)?.value;
+        await q('insert into attribute_corrections (reference_outfit_id, group_id, before, after, admin_email) values ($1, $2, $3::jsonb, $4::jsonb, $5)', [
+          id, g.id, JSON.stringify({ values: before.map((b) => (b.value_id ? name(b.value_id) : b.other_text)) }),
+          JSON.stringify({ values: [...ids.map(name), ...(other ? [other] : [])] }), email]);
+        await q('delete from reference_attributes where reference_outfit_id = $1 and group_id = $2', [id, g.id]);
+        for (const [i, v] of ids.entries()) {
+          await q('insert into reference_attributes (reference_outfit_id, group_id, value_id, admin_corrected, position) values ($1, $2, $3, true, $4)', [id, g.id, v, i]);
+        }
+        if (other) {
+          await q('insert into reference_attributes (reference_outfit_id, group_id, other_text, admin_corrected, position) values ($1, $2, $3, true, 99)', [id, g.id, other]);
+          if (!g.free_text) await q(`select record_pending_value($1, $2, 'admin')`, [g.id, other]);
+        }
+        if (g.key === 'garment_type') {
+          await q('update reference_outfits set garment_type_id = $2, label_mismatch = $3 where id = $1',
+            [id, ids[0] ?? null, row.dataset_label ? labelMismatch(row.dataset_label, ids.map((v) => name(v) ?? '')) : null]);
+        }
+        if (g.key === 'colour') await q('update reference_outfits set colour_family_id = $2 where id = $1', [id, g.values.find((x) => x.id === ids[0])?.family_id ?? null]);
       }
-      if (g.key === 'colour') patch.colour_family_id = g.values.find((x) => x.id === ids[0])?.family_id ?? null;
-    }
-    must(await db().from('reference_outfits').update(patch).eq('id', id), 'mark reviewed');
+      await q('update reference_outfits set reviewed_at = now() where id = $1', [id]);
+    });
     return { ok: true, corrected };
   } catch (e) { return fail(e); }
 }
@@ -108,12 +99,10 @@ const LABELS = ['same_outfit', 'same_design_diff_colour', 'similar_look', 'diffe
 
 export async function labelCounts() {
   await admin();
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [{ count: total }, { count: todayCount }] = await Promise.all([
-    db().from('label_pairs').select('id', { count: 'exact', head: true }).not('admin_label', 'is', null),
-    db().from('label_pairs').select('id', { count: 'exact', head: true }).not('admin_label', 'is', null).gte('labelled_at', today.toISOString()),
-  ]);
-  return { total: total ?? 0, today: todayCount ?? 0 };
+  const r = await one<{ total: number; today: number }>(
+    `select count(*) as total, count(*) filter (where labelled_at >= date_trunc('day', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata') as today
+     from label_pairs where admin_label is not null`);
+  return { total: r?.total ?? 0, today: r?.today ?? 0 };
 }
 
 /** Pairs picked by uncertainty: judge was not confident, or similarity sits closest to the threshold. */
@@ -121,21 +110,21 @@ export async function nextLabelPairs(n = 10): Promise<LabelTask[]> {
   await admin();
   const s = await getSettings();
   const tasks: LabelTask[] = [];
-  const unsure = must(await db().from('outfit_pairs')
-    .select('outfit_a_id,outfit_b_id,similarity,confidence, a:outfits!outfit_pairs_outfit_a_id_fkey(keep_for_training), b:outfits!outfit_pairs_outfit_b_id_fkey(keep_for_training)')
-    .neq('confidence', 'high').not('verdict', 'is', null).order('judged_at', { ascending: false }).limit(40)) as any[];
+  // Judged guest pairs where the judge was not confident, both guests consented, and no label exists yet.
+  const unsure = await sql(
+    `select p.outfit_a_id, p.outfit_b_id, p.similarity from outfit_pairs p
+     join outfits a on a.id = p.outfit_a_id and a.keep_for_training
+     join outfits b on b.id = p.outfit_b_id and b.keep_for_training
+     where p.verdict is not null and p.confidence <> 'high'
+       and not exists (select 1 from label_pairs l where l.left_kind = 'guest' and l.left_id = p.outfit_a_id and l.right_kind = 'guest' and l.right_id = p.outfit_b_id)
+     order by p.judged_at desc limit $1`, [Math.ceil(n / 3)]);
   for (const p of unsure) {
-    if (tasks.length >= Math.ceil(n / 3)) break;
-    if (!p.a?.keep_for_training || !p.b?.keep_for_training) continue;   // consented photos only
-    const { count } = await db().from('label_pairs').select('id', { count: 'exact', head: true })
-      .eq('left_kind', 'guest').eq('left_id', p.outfit_a_id).eq('right_kind', 'guest').eq('right_id', p.outfit_b_id);
-    if (count) continue;
     tasks.push({
       left: await card({ kind: 'guest', id: p.outfit_a_id }), right: await card({ kind: 'guest', id: p.outfit_b_id }),
       similarity: p.similarity, why: 'judge_not_confident',
     });
   }
-  const near = must(await db().rpc('label_candidates', { p_threshold: s.judge_threshold, p_n: n - tasks.length, p_sample: 150 })) as any[];
+  const near = await sql('select * from label_candidates($1, $2, 150)', [s.judge_threshold, n - tasks.length]);
   for (const c of near) {
     tasks.push({
       left: await card({ kind: 'reference', id: c.left_id }), right: await card({ kind: 'reference', id: c.right_id }),
@@ -148,22 +137,24 @@ export async function nextLabelPairs(n = 10): Promise<LabelTask[]> {
 export async function submitLabel(t: { left: ItemRef; right: ItemRef; similarity: number | null; why: string }, label: string): Promise<Result> {
   try {
     const email = await admin();
-    if (!LABELS.includes(label)) throw new Error('Unknown label');
-    let judged: any = null;
-    if (t.left.kind === 'guest' && t.right.kind === 'guest') {
-      judged = must(await db().from('outfit_pairs').select('verdict,confidence').eq('outfit_a_id', t.left.id).eq('outfit_b_id', t.right.id).maybeSingle());
-    }
-    const row = must(await db().from('label_pairs').upsert({
-      left_kind: t.left.kind, left_id: t.left.id, right_kind: t.right.kind, right_id: t.right.id,
-      similarity: t.similarity, picked_reason: t.why, admin_label: label, admin_email: email, labelled_at: new Date().toISOString(),
-      ...(judged ? { judge_verdict: judged.verdict, judge_confidence: judged.confidence } : {}),
-    }, { onConflict: 'left_kind,left_id,right_kind,right_id' }).select('id,judge_verdict').single(), 'save label') as any;
+    if (!LABELS.includes(label) || !isUuid(t.left.id) || !isUuid(t.right.id)) throw new Error('Unknown label');
+    const judged = t.left.kind === 'guest' && t.right.kind === 'guest'
+      ? await one('select verdict, confidence from outfit_pairs where outfit_a_id = $1 and outfit_b_id = $2', [t.left.id, t.right.id]) : null;
+    const row = (await one<{ id: string; judge_verdict: string | null }>(
+      `insert into label_pairs (left_kind, left_id, right_kind, right_id, similarity, picked_reason, admin_label, admin_email, labelled_at, judge_verdict, judge_confidence)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10)
+       on conflict (left_kind, left_id, right_kind, right_id) do update set
+         admin_label = excluded.admin_label, admin_email = excluded.admin_email, labelled_at = now(),
+         judge_verdict = coalesce(excluded.judge_verdict, label_pairs.judge_verdict),
+         judge_confidence = coalesce(excluded.judge_confidence, label_pairs.judge_confidence)
+       returning id, judge_verdict`,
+      [t.left.kind, t.left.id, t.right.kind, t.right.id, t.similarity, t.why, label, email, judged?.verdict ?? null, judged?.confidence ?? null]))!;
     // Score the current pipeline on this pair so the dashboard can compare it with the label.
     if (!row.judge_verdict && (await getSettings()).judge_on_label) {
       after(async () => {
         try {
           const out = await judgeItems(t.left, t.right, {});
-          await db().from('label_pairs').update({ judge_verdict: out.verdict, judge_confidence: out.confidence }).eq('id', row.id);
+          await sql('update label_pairs set judge_verdict = $1, judge_confidence = $2 where id = $3', [out.verdict, out.confidence, row.id]);
         } catch (e) { console.error('judge on label failed', e); }
       });
     }
@@ -175,24 +166,23 @@ export async function submitLabel(t: { left: ItemRef; right: ItemRef; similarity
 export async function resolvePending(id: string, action: 'approve' | 'reject' | 'merge', targetId?: string): Promise<Result> {
   try {
     await admin();
-    const p = must(await db().from('attribute_pending').select('*').eq('id', id).single()) as any;
-    let valueId: string | null = null;
-    if (action === 'approve') {
-      valueId = (must(await db().from('attribute_values').insert({ group_id: p.group_id, value: p.normalised_value, origin: 'promoted', sort: 9999 }).select('id').single(), 'add value') as any).id;
-    } else if (action === 'merge') {
-      if (!targetId) throw new Error('Pick the value to merge into');
-      valueId = targetId;
-    }
-    must(await db().from('attribute_pending').update({
-      status: action === 'approve' ? 'approved' : action === 'merge' ? 'merged' : 'rejected',
-      resolved_value_id: valueId, resolved_at: new Date().toISOString(),
-    }).eq('id', id));
-    if (valueId) {
-      // Rows saved as free text now point at the real value.
-      for (const table of ['outfit_attributes', 'reference_attributes']) {
-        await db().from(table).update({ value_id: valueId, other_text: null }).eq('group_id', p.group_id).is('value_id', null).ilike('other_text', p.normalised_value);
+    const p = await one('select group_id, normalised_value from attribute_pending where id = $1', [id]);
+    if (!p) throw new Error('Not found');
+    if (action === 'merge' && !isUuid(targetId)) throw new Error('Pick the value to merge into');
+    await transaction(async (q) => {
+      let valueId: string | null = action === 'merge' ? targetId! : null;
+      if (action === 'approve') {
+        valueId = (await q<{ id: string }>(`insert into attribute_values (group_id, value, origin, sort) values ($1, $2, 'promoted', 9999) returning id`, [p.group_id, p.normalised_value]))[0].id;
       }
-    }
+      await q('update attribute_pending set status = $2, resolved_value_id = $3, resolved_at = now() where id = $1',
+        [id, action === 'approve' ? 'approved' : action === 'merge' ? 'merged' : 'rejected', valueId]);
+      if (valueId) {
+        // Rows saved as free text now point at the real value.
+        for (const table of ['outfit_attributes', 'reference_attributes']) {
+          await q(`update ${table} set value_id = $1, other_text = null where group_id = $2 and value_id is null and lower(btrim(other_text)) = $3`, [valueId, p.group_id, p.normalised_value]);
+        }
+      }
+    });
     await loadVocab(true);
     revalidatePath('/admin/vocabulary');
     return { ok: true };
@@ -208,17 +198,18 @@ export async function labelFeedback(id: string, label: string): Promise<Result> 
   try {
     const email = await admin();
     if (!LABELS.includes(label)) throw new Error('Unknown label');
-    const f = must(await db().from('result_feedback').update({ admin_label: label }).eq('id', id).select('pair_snapshot').single()) as any;
-    const a = f.pair_snapshot?.reporter_outfit_id, b = f.pair_snapshot?.other_outfit_id;
-    if (a && b) {
+    const f = await one('update result_feedback set admin_label = $2 where id = $1 returning pair_snapshot', [id, label]);
+    const a = f?.pair_snapshot?.reporter_outfit_id, b = f?.pair_snapshot?.other_outfit_id;
+    if (isUuid(a) && isUuid(b)) {
       const [l, r] = a < b ? [a, b] : [b, a];
-      const { count } = await db().from('outfits').select('id', { count: 'exact', head: true }).in('id', [l, r]);
-      if (count === 2) {
-        await db().from('label_pairs').upsert({
-          left_kind: 'guest', left_id: l, right_kind: 'guest', right_id: r, similarity: f.pair_snapshot.judge?.similarity ?? null,
-          judge_verdict: f.pair_snapshot.judge?.verdict ?? null, judge_confidence: f.pair_snapshot.judge?.confidence ?? null,
-          picked_reason: 'guest_feedback', admin_label: label, admin_email: email, labelled_at: new Date().toISOString(),
-        }, { onConflict: 'left_kind,left_id,right_kind,right_id' });
+      const both = await one<{ n: number }>('select count(*) as n from outfits where id = any($1::uuid[])', [[l, r]]);
+      if (both?.n === 2) {
+        const j = f.pair_snapshot.judge ?? {};
+        await sql(
+          `insert into label_pairs (left_kind, left_id, right_kind, right_id, similarity, judge_verdict, judge_confidence, picked_reason, admin_label, admin_email, labelled_at)
+           values ('guest', $1, 'guest', $2, $3, $4, $5, 'guest_feedback', $6, $7, now())
+           on conflict (left_kind, left_id, right_kind, right_id) do update set admin_label = excluded.admin_label, admin_email = excluded.admin_email, labelled_at = now()`,
+          [l, r, j.similarity ?? null, j.verdict ?? null, j.confidence ?? null, label, email]);
       }
     }
     revalidatePath('/admin/feedback');
@@ -243,17 +234,16 @@ export async function runRaahaNow(costCap: number): Promise<Result<{ fresh: numb
 export async function jobAction(id: string, action: 'start' | 'pause' | 'resume' | 'retry_failed', costCap?: number): Promise<Result> {
   try {
     await admin();
-    const job = must(await db().from('batch_jobs').select('*').eq('id', id).single()) as any;
-    const patch: Record<string, unknown> = {};
-    if (costCap != null) patch.cost_cap_usd = cap(costCap, Number(job.cost_cap_usd));
-    if (action === 'pause') patch.status = 'paused';
-    if (action === 'start' || action === 'resume') { patch.status = 'running'; patch.started_at = job.started_at ?? new Date().toISOString(); }
+    const job = await one('select cost_cap_usd from batch_jobs where id = $1', [id]);
+    if (!job) throw new Error('Job not found');
     if (action === 'retry_failed') {
-      await db().from('reference_outfits').update({ status: 'pending' }).eq('batch_job_id', id).eq('status', 'failed');
-      patch.status = 'running'; patch.failed = 0;
+      await sql(`update reference_outfits set status = 'pending' where batch_job_id = $1 and status = 'failed'`, [id]);
+      await sql('update batch_jobs set failed = 0 where id = $1', [id]);
     }
-    must(await db().from('batch_jobs').update(patch).eq('id', id));
-    if (patch.status === 'running') after(() => runJob(id, Date.now() + 240_000).catch((e) => console.error(e)));
+    const status = action === 'pause' ? 'paused' : 'running';
+    await sql(`update batch_jobs set status = $2, cost_cap_usd = $3, started_at = coalesce(started_at, now()) where id = $1`,
+      [id, status, costCap != null ? cap(costCap, job.cost_cap_usd) : job.cost_cap_usd]);
+    if (status === 'running') after(() => runJob(id, Date.now() + 240_000).catch((e) => console.error(e)));
     revalidatePath('/admin/imports');
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -263,23 +253,22 @@ export async function jobAction(id: string, action: 'start' | 'pause' | 'resume'
 export async function saveBrand(form: FormData): Promise<Result> {
   try {
     await admin();
-    const name = clean(form.get('name'), 80), feed_type = String(form.get('feed_type'));
-    if (!name || !['shopify', 'woocommerce', 'csv'].includes(feed_type)) throw new Error('Name and feed type are required');
-    const row: Record<string, unknown> = {
-      name, feed_type, feed_url: clean(form.get('feed_url'), 500) || null,
-      permission_date: /^\d{4}-\d{2}-\d{2}$/.test(String(form.get('permission_date'))) ? form.get('permission_date') : null,
-      permission_note: clean(form.get('permission_note'), 1000) || null,
-    };
+    const name = clean(form.get('name'), 80), feedType = String(form.get('feed_type'));
+    if (!name || !['shopify', 'woocommerce', 'csv'].includes(feedType)) throw new Error('Name and feed type are required');
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(form.get('permission_date'))) ? String(form.get('permission_date')) : null;
+    const fields = [name, feedType, clean(form.get('feed_url'), 500) || null, date, clean(form.get('permission_note'), 1000) || null];
+    let id = String(form.get('id') ?? '');
+    if (isUuid(id)) {
+      await sql('update partner_brands set name = $2, feed_type = $3, feed_url = $4, permission_date = $5, permission_note = $6 where id = $1', [id, ...fields]);
+    } else {
+      id = (await one<{ id: string }>('insert into partner_brands (name, feed_type, feed_url, permission_date, permission_note) values ($1, $2, $3, $4, $5) returning id', fields))!.id;
+    }
     const file = form.get('permission_file');
     if (file instanceof File && file.size > 0) {
       if (file.size > 4_000_000) throw new Error('The permission file must be under 4 MB');
-      const path = `${randomUUID()}-${file.name.replace(/[^\w.-]/g, '_').slice(-80)}`;
-      const up = await db().storage.from('permissions').upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type || 'application/octet-stream' });
-      if (up.error) throw new Error(up.error.message);
-      row.permission_file_path = path;
+      await sql('update partner_brands set permission_file = $2, permission_file_name = $3 where id = $1',
+        [id, Buffer.from(await file.arrayBuffer()), file.name.replace(/[^\w.-]/g, '_').slice(-80)]);
     }
-    const id = String(form.get('id') ?? '');
-    must(id ? await db().from('partner_brands').update(row).eq('id', id) : await db().from('partner_brands').insert(row), 'save brand');
     revalidatePath('/admin/brands');
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -301,7 +290,7 @@ export async function importBrand(form: FormData): Promise<Result<{ fresh: numbe
   }
 }
 export async function toggleBrand(id: string, on: boolean): Promise<Result> {
-  try { await admin(); must(await db().from('partner_brands').update({ show_in_similar: on }).eq('id', id)); revalidatePath('/admin/brands'); return { ok: true }; }
+  try { await admin(); await sql('update partner_brands set show_in_similar = $2 where id = $1', [id, on]); revalidatePath('/admin/brands'); return { ok: true }; }
   catch (e) { return fail(e); }
 }
 export async function deleteBrand(id: string): Promise<Result<{ removed: number }>> {
@@ -317,21 +306,15 @@ export async function uploadStockOutfit(form: FormData): Promise<Result<{ jobId:
     const s = await getSettings();
     const files = form.getAll('photos').filter((f): f is File => f instanceof File && f.size > 0).slice(0, 4);
     if (!files.length) throw new Error('Add at least one photo');
-    const jobId = String(form.get('job_id') ?? '');
-    const job = jobId ? { id: jobId } : await createJob('own_stock', s.default_import_cost_cap_usd);
-    const row = must(await db().from('reference_outfits').insert({
-      source: 'own_stock', external_id: randomUUID(), name: clean(form.get('name'), 200) || null, sku: clean(form.get('sku'), 60) || null,
-      status: 'pending', batch_job_id: job.id,
-    }).select('id').single(), 'save outfit') as any;
-    for (const [sort, f] of files.entries()) {
-      const { jpeg } = await normalise(Buffer.from(await f.arrayBuffer()));
-      const path = `own_stock/${row.id}/${sort}.jpg`;
-      const up = await db().storage.from('reference').upload(path, jpeg, { contentType: 'image/jpeg' });
-      if (up.error) throw new Error(up.error.message);
-      must(await db().from('reference_photos').insert({ reference_outfit_id: row.id, storage_path: path, sort }));
-    }
-    await setJobTotal(job.id);
-    return { ok: true, jobId: job.id };
+    const jpegs = await Promise.all(files.map(async (f) => (await normalise(Buffer.from(await f.arrayBuffer()))).jpeg));
+    const given = String(form.get('job_id') ?? '');
+    const jobId = isUuid(given) ? given : (await createJob('own_stock', s.default_import_cost_cap_usd)).id;
+    const row = (await one<{ id: string }>(
+      `insert into reference_outfits (source, external_id, name, status, batch_job_id) values ('own_stock', $1, $2, 'pending', $3) returning id`,
+      [randomUUID(), clean(form.get('name'), 200) || null, jobId]))!;
+    for (const [sort, jpeg] of jpegs.entries()) await addStoredPhoto(row.id, jpeg, sort);
+    await setJobTotal(jobId);
+    return { ok: true, jobId };
   } catch (e) { return fail(e); }
 }
 export async function startStockJob(jobId: string): Promise<Result> {

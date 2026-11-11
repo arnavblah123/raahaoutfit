@@ -1,11 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PhotoPicker } from './PhotoPicker';
 import { embedInBrowser } from '@/lib/client/embed';
 import { VERDICT_LABEL } from '@/lib/weddings';
 
-export function OutfitActions({ code, outfitId, hasResult, verdict, request }: {
-  code: string; outfitId: string; hasResult: boolean; verdict: string | null;
+export function OutfitActions({ code, outfitId, hasResult, unseen, verdict, request }: {
+  code: string; outfitId: string; hasResult: boolean; unseen: boolean; verdict: string | null;
   request: { text: string; followup: boolean } | null;
 }) {
   const base = `/api/w/${code}/outfits/${outfitId}`;
@@ -16,6 +16,7 @@ export function OutfitActions({ code, outfitId, hasResult, verdict, request }: {
   const [sent, setSent] = useState(false);
   const [corrected, setCorrected] = useState('');
   const [note, setNote] = useState('');
+  useEffect(() => { if (unseen) fetch(`${base}/seen`, { method: 'POST' }).catch(() => {}); }, [unseen, base]);
 
   async function addPhoto() {
     if (!photo) return;
@@ -55,7 +56,7 @@ export function OutfitActions({ code, outfitId, hasResult, verdict, request }: {
       )}
       {error && <p className="err">{error}</p>}
 
-      {hasResult && !sent && !wrong && <button className="text-sm text-muted underline" onClick={() => setWrong(true)}>This result is wrong</button>}
+      {hasResult && !sent && !wrong && <button className="block text-sm text-muted underline" onClick={() => setWrong(true)}>This result is wrong</button>}
       {sent && <p className="note">Thank you. We will review this result.</p>}
       {wrong && (
         <section className="card space-y-3">
@@ -72,7 +73,7 @@ export function OutfitActions({ code, outfitId, hasResult, verdict, request }: {
           </div>
         </section>
       )}
-      <button className="text-sm text-warn underline" onClick={remove} disabled={!!busy}>Delete this outfit</button>
+      <button className="block text-sm text-warn underline" onClick={remove} disabled={!!busy}>Delete this outfit</button>
     </div>
   );
 }

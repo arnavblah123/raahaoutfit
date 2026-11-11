@@ -19,7 +19,7 @@ import type { Vocab } from '../src/lib/vocab';
 
 const a = args();
 if (!a.dir) { console.error('Usage: npm run test:pairs -- --dir <folder of pairs> [--no-embed]'); process.exit(1); }
-const vocab = JSON.parse(readFileSync('supabase/seed-vocab.json', 'utf8')) as Vocab;
+const vocab = JSON.parse(readFileSync('db/seed-vocab.json', 'utf8')) as Vocab;
 const usage: Usage[] = [];
 let correct = 0, withExpected = 0;
 
