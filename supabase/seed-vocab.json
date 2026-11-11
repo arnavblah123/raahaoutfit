@@ -1,0 +1,1437 @@
+{
+ "groups": [
+  {
+   "id": "garment_type",
+   "key": "garment_type",
+   "label": "Garment type",
+   "free_text": false,
+   "values": [
+    {
+     "id": "garment_type:lehenga choli",
+     "value": "lehenga choli",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:bridal lehenga",
+     "value": "bridal lehenga",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:jacket lehenga",
+     "value": "jacket lehenga",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:crush lehenga",
+     "value": "crush lehenga",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:saree",
+     "value": "saree",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:drape saree",
+     "value": "drape saree",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:pre-draped saree",
+     "value": "pre-draped saree",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:half saree",
+     "value": "half saree",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:anarkali",
+     "value": "anarkali",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:floor-length gown",
+     "value": "floor-length gown",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:indo-western gown",
+     "value": "indo-western gown",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:sharara set",
+     "value": "sharara set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:gharara set",
+     "value": "gharara set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:palazzo set",
+     "value": "palazzo set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:salwar kameez",
+     "value": "salwar kameez",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:farshi salwar set",
+     "value": "farshi salwar set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:churidar set",
+     "value": "churidar set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:kurta set",
+     "value": "kurta set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:choga set",
+     "value": "choga set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:cape set",
+     "value": "cape set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:drape skirt set",
+     "value": "drape skirt set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:blazer set",
+     "value": "blazer set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:dhoti set",
+     "value": "dhoti set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:co-ord set",
+     "value": "co-ord set",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:kaftan",
+     "value": "kaftan",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:skirt and top",
+     "value": "skirt and top",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "garment_type:angrakha",
+     "value": "angrakha",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "colour",
+   "key": "colour",
+   "label": "Colour",
+   "free_text": false,
+   "values": [
+    {
+     "id": "colour:red",
+     "value": "red",
+     "family_id": "reds_pinks",
+     "hex": "#D0202A"
+    },
+    {
+     "id": "colour:deep red",
+     "value": "deep red",
+     "family_id": "reds_pinks",
+     "hex": "#9B111E"
+    },
+    {
+     "id": "colour:maroon",
+     "value": "maroon",
+     "family_id": "reds_pinks",
+     "hex": "#800000"
+    },
+    {
+     "id": "colour:wine",
+     "value": "wine",
+     "family_id": "reds_pinks",
+     "hex": "#722F37"
+    },
+    {
+     "id": "colour:burgundy",
+     "value": "burgundy",
+     "family_id": "reds_pinks",
+     "hex": "#800020"
+    },
+    {
+     "id": "colour:crimson",
+     "value": "crimson",
+     "family_id": "reds_pinks",
+     "hex": "#DC143C"
+    },
+    {
+     "id": "colour:rust",
+     "value": "rust",
+     "family_id": "reds_pinks",
+     "hex": "#B7410E"
+    },
+    {
+     "id": "colour:coral",
+     "value": "coral",
+     "family_id": "reds_pinks",
+     "hex": "#FF7F50"
+    },
+    {
+     "id": "colour:peach",
+     "value": "peach",
+     "family_id": "reds_pinks",
+     "hex": "#FFCBA4"
+    },
+    {
+     "id": "colour:blush",
+     "value": "blush",
+     "family_id": "reds_pinks",
+     "hex": "#F4C2C2"
+    },
+    {
+     "id": "colour:baby pink",
+     "value": "baby pink",
+     "family_id": "reds_pinks",
+     "hex": "#F8C8DC"
+    },
+    {
+     "id": "colour:rose",
+     "value": "rose",
+     "family_id": "reds_pinks",
+     "hex": "#E8909C"
+    },
+    {
+     "id": "colour:hot pink",
+     "value": "hot pink",
+     "family_id": "reds_pinks",
+     "hex": "#FF4FA3"
+    },
+    {
+     "id": "colour:rani pink",
+     "value": "rani pink",
+     "family_id": "reds_pinks",
+     "hex": "#D6247A"
+    },
+    {
+     "id": "colour:magenta",
+     "value": "magenta",
+     "family_id": "reds_pinks",
+     "hex": "#C2187A"
+    },
+    {
+     "id": "colour:fuchsia",
+     "value": "fuchsia",
+     "family_id": "reds_pinks",
+     "hex": "#E0218A"
+    },
+    {
+     "id": "colour:onion pink",
+     "value": "onion pink",
+     "family_id": "reds_pinks",
+     "hex": "#C9838F"
+    },
+    {
+     "id": "colour:orchid",
+     "value": "orchid",
+     "family_id": "reds_pinks",
+     "hex": "#DA70D6"
+    },
+    {
+     "id": "colour:orange",
+     "value": "orange",
+     "family_id": "oranges_yellows",
+     "hex": "#F58220"
+    },
+    {
+     "id": "colour:burnt orange",
+     "value": "burnt orange",
+     "family_id": "oranges_yellows",
+     "hex": "#CC5500"
+    },
+    {
+     "id": "colour:saffron",
+     "value": "saffron",
+     "family_id": "oranges_yellows",
+     "hex": "#F4A300"
+    },
+    {
+     "id": "colour:mustard",
+     "value": "mustard",
+     "family_id": "oranges_yellows",
+     "hex": "#D4A017"
+    },
+    {
+     "id": "colour:turmeric yellow",
+     "value": "turmeric yellow",
+     "family_id": "oranges_yellows",
+     "hex": "#F2C200"
+    },
+    {
+     "id": "colour:lemon",
+     "value": "lemon",
+     "family_id": "oranges_yellows",
+     "hex": "#FFF176"
+    },
+    {
+     "id": "colour:gold",
+     "value": "gold",
+     "family_id": "oranges_yellows",
+     "hex": "#D4AF37"
+    },
+    {
+     "id": "colour:champagne",
+     "value": "champagne",
+     "family_id": "oranges_yellows",
+     "hex": "#F1DDB8"
+    },
+    {
+     "id": "colour:mint",
+     "value": "mint",
+     "family_id": "greens",
+     "hex": "#B5EAD7"
+    },
+    {
+     "id": "colour:pista",
+     "value": "pista",
+     "family_id": "greens",
+     "hex": "#C5DCA0"
+    },
+    {
+     "id": "colour:sage",
+     "value": "sage",
+     "family_id": "greens",
+     "hex": "#A3B18A"
+    },
+    {
+     "id": "colour:olive",
+     "value": "olive",
+     "family_id": "greens",
+     "hex": "#708238"
+    },
+    {
+     "id": "colour:mehendi green",
+     "value": "mehendi green",
+     "family_id": "greens",
+     "hex": "#6B7A1E"
+    },
+    {
+     "id": "colour:parrot green",
+     "value": "parrot green",
+     "family_id": "greens",
+     "hex": "#4CBB17"
+    },
+    {
+     "id": "colour:lime",
+     "value": "lime",
+     "family_id": "greens",
+     "hex": "#BFD833"
+    },
+    {
+     "id": "colour:emerald",
+     "value": "emerald",
+     "family_id": "greens",
+     "hex": "#1E9B6B"
+    },
+    {
+     "id": "colour:bottle green",
+     "value": "bottle green",
+     "family_id": "greens",
+     "hex": "#0B5D3B"
+    },
+    {
+     "id": "colour:sea green",
+     "value": "sea green",
+     "family_id": "greens",
+     "hex": "#2E8B77"
+    },
+    {
+     "id": "colour:teal",
+     "value": "teal",
+     "family_id": "greens",
+     "hex": "#008080"
+    },
+    {
+     "id": "colour:sky blue",
+     "value": "sky blue",
+     "family_id": "blues",
+     "hex": "#87CEEB"
+    },
+    {
+     "id": "colour:powder blue",
+     "value": "powder blue",
+     "family_id": "blues",
+     "hex": "#B6D0E2"
+    },
+    {
+     "id": "colour:ice blue",
+     "value": "ice blue",
+     "family_id": "blues",
+     "hex": "#D6ECF3"
+    },
+    {
+     "id": "colour:dust blue",
+     "value": "dust blue",
+     "family_id": "blues",
+     "hex": "#8FA9BF"
+    },
+    {
+     "id": "colour:aqua",
+     "value": "aqua",
+     "family_id": "blues",
+     "hex": "#7FDBDA"
+    },
+    {
+     "id": "colour:turquoise",
+     "value": "turquoise",
+     "family_id": "blues",
+     "hex": "#30D5C8"
+    },
+    {
+     "id": "colour:firozi",
+     "value": "firozi",
+     "family_id": "blues",
+     "hex": "#12B5CB"
+    },
+    {
+     "id": "colour:royal blue",
+     "value": "royal blue",
+     "family_id": "blues",
+     "hex": "#2447B5"
+    },
+    {
+     "id": "colour:cobalt",
+     "value": "cobalt",
+     "family_id": "blues",
+     "hex": "#0047AB"
+    },
+    {
+     "id": "colour:navy",
+     "value": "navy",
+     "family_id": "blues",
+     "hex": "#14213D"
+    },
+    {
+     "id": "colour:peacock blue",
+     "value": "peacock blue",
+     "family_id": "blues",
+     "hex": "#005F73"
+    },
+    {
+     "id": "colour:indigo",
+     "value": "indigo",
+     "family_id": "blues",
+     "hex": "#3F3D99"
+    },
+    {
+     "id": "colour:lavender",
+     "value": "lavender",
+     "family_id": "purples",
+     "hex": "#C9B8E8"
+    },
+    {
+     "id": "colour:lilac",
+     "value": "lilac",
+     "family_id": "purples",
+     "hex": "#C8A2C8"
+    },
+    {
+     "id": "colour:mauve",
+     "value": "mauve",
+     "family_id": "purples",
+     "hex": "#B784A7"
+    },
+    {
+     "id": "colour:purple",
+     "value": "purple",
+     "family_id": "purples",
+     "hex": "#7B2D8E"
+    },
+    {
+     "id": "colour:violet",
+     "value": "violet",
+     "family_id": "purples",
+     "hex": "#7F3FBF"
+    },
+    {
+     "id": "colour:plum",
+     "value": "plum",
+     "family_id": "purples",
+     "hex": "#7A2E5E"
+    },
+    {
+     "id": "colour:aubergine",
+     "value": "aubergine",
+     "family_id": "purples",
+     "hex": "#472C4C"
+    },
+    {
+     "id": "colour:white",
+     "value": "white",
+     "family_id": "neutrals_metallics",
+     "hex": "#FFFFFF"
+    },
+    {
+     "id": "colour:ivory",
+     "value": "ivory",
+     "family_id": "neutrals_metallics",
+     "hex": "#FFFDF0"
+    },
+    {
+     "id": "colour:cream",
+     "value": "cream",
+     "family_id": "neutrals_metallics",
+     "hex": "#FFF4D6"
+    },
+    {
+     "id": "colour:beige",
+     "value": "beige",
+     "family_id": "neutrals_metallics",
+     "hex": "#E6D2B5"
+    },
+    {
+     "id": "colour:nude",
+     "value": "nude",
+     "family_id": "neutrals_metallics",
+     "hex": "#E3BC9A"
+    },
+    {
+     "id": "colour:brown",
+     "value": "brown",
+     "family_id": "neutrals_metallics",
+     "hex": "#7B4B2A"
+    },
+    {
+     "id": "colour:coffee",
+     "value": "coffee",
+     "family_id": "neutrals_metallics",
+     "hex": "#4B3621"
+    },
+    {
+     "id": "colour:grey",
+     "value": "grey",
+     "family_id": "neutrals_metallics",
+     "hex": "#9E9E9E"
+    },
+    {
+     "id": "colour:charcoal",
+     "value": "charcoal",
+     "family_id": "neutrals_metallics",
+     "hex": "#36454F"
+    },
+    {
+     "id": "colour:black",
+     "value": "black",
+     "family_id": "neutrals_metallics",
+     "hex": "#111111"
+    },
+    {
+     "id": "colour:silver",
+     "value": "silver",
+     "family_id": "neutrals_metallics",
+     "hex": "#C0C0C0"
+    },
+    {
+     "id": "colour:rose gold",
+     "value": "rose gold",
+     "family_id": "neutrals_metallics",
+     "hex": "#B76E79"
+    },
+    {
+     "id": "colour:copper",
+     "value": "copper",
+     "family_id": "neutrals_metallics",
+     "hex": "#B87333"
+    },
+    {
+     "id": "colour:bronze",
+     "value": "bronze",
+     "family_id": "neutrals_metallics",
+     "hex": "#9C6B30"
+    },
+    {
+     "id": "colour:metallic",
+     "value": "metallic",
+     "family_id": "neutrals_metallics",
+     "hex": "#A8A9AD"
+    }
+   ]
+  },
+  {
+   "id": "tone",
+   "key": "tone",
+   "label": "Tone",
+   "free_text": false,
+   "values": [
+    {
+     "id": "tone:pastel",
+     "value": "pastel",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "tone:bright",
+     "value": "bright",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "tone:deep",
+     "value": "deep",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "tone:metallic",
+     "value": "metallic",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "tone:multicolour",
+     "value": "multicolour",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "tone:ombre",
+     "value": "ombre",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "embellishment",
+   "key": "embellishment",
+   "label": "Embroidery and embellishment",
+   "free_text": false,
+   "values": [
+    {
+     "id": "embellishment:zari",
+     "value": "zari",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:zardozi",
+     "value": "zardozi",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:dabka",
+     "value": "dabka",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:aari",
+     "value": "aari",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:resham thread",
+     "value": "resham thread",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:sequin",
+     "value": "sequin",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:mirror",
+     "value": "mirror",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:gota patti",
+     "value": "gota patti",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:kundan",
+     "value": "kundan",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:stone",
+     "value": "stone",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:crystal",
+     "value": "crystal",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:pearl (moti)",
+     "value": "pearl (moti)",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:mother of pearl",
+     "value": "mother of pearl",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:cutdana",
+     "value": "cutdana",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:beads",
+     "value": "beads",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:poth",
+     "value": "poth",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:salli",
+     "value": "salli",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:shell",
+     "value": "shell",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:feather",
+     "value": "feather",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:chikankari (Lucknowi)",
+     "value": "chikankari (Lucknowi)",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:phulkari",
+     "value": "phulkari",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:kantha",
+     "value": "kantha",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:Kashmiri",
+     "value": "Kashmiri",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:Parsi gara",
+     "value": "Parsi gara",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:applique",
+     "value": "applique",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:patch work",
+     "value": "patch work",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:cutwork",
+     "value": "cutwork",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:lace",
+     "value": "lace",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "embellishment:tassels",
+     "value": "tassels",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "print_weave",
+   "key": "print_weave",
+   "label": "Print and weave",
+   "free_text": false,
+   "values": [
+    {
+     "id": "print_weave:bandhani",
+     "value": "bandhani",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:leheriya",
+     "value": "leheriya",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:ikat",
+     "value": "ikat",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:patola",
+     "value": "patola",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:block print",
+     "value": "block print",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:kalamkari",
+     "value": "kalamkari",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:ajrakh",
+     "value": "ajrakh",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:digital print",
+     "value": "digital print",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:position print",
+     "value": "position print",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:foil print",
+     "value": "foil print",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:Banarasi brocade",
+     "value": "Banarasi brocade",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:Kanjeevaram",
+     "value": "Kanjeevaram",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:Paithani",
+     "value": "Paithani",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:minakari weave",
+     "value": "minakari weave",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:jamdani",
+     "value": "jamdani",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "print_weave:Pochampally",
+     "value": "Pochampally",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "fabric",
+   "key": "fabric",
+   "label": "Fabric",
+   "free_text": false,
+   "values": [
+    {
+     "id": "fabric:raw silk",
+     "value": "raw silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:Banarasi silk",
+     "value": "Banarasi silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:Kanjeevaram silk",
+     "value": "Kanjeevaram silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:mulberry silk",
+     "value": "mulberry silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:gaji silk",
+     "value": "gaji silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:dola silk",
+     "value": "dola silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:modal silk",
+     "value": "modal silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:cotton silk",
+     "value": "cotton silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:crepe silk",
+     "value": "crepe silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:tussar",
+     "value": "tussar",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:dupion",
+     "value": "dupion",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:art silk",
+     "value": "art silk",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:satin",
+     "value": "satin",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:crepe",
+     "value": "crepe",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:georgette",
+     "value": "georgette",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:khaddi georgette",
+     "value": "khaddi georgette",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:chiffon",
+     "value": "chiffon",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:chinon",
+     "value": "chinon",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:net",
+     "value": "net",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:tulle",
+     "value": "tulle",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:organza",
+     "value": "organza",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:tissue",
+     "value": "tissue",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:velvet",
+     "value": "velvet",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:cotton",
+     "value": "cotton",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:mulmul",
+     "value": "mulmul",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:muslin",
+     "value": "muslin",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:linen",
+     "value": "linen",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:chanderi",
+     "value": "chanderi",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:Maheshwari",
+     "value": "Maheshwari",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:kota doria",
+     "value": "kota doria",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:brocade",
+     "value": "brocade",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:jacquard",
+     "value": "jacquard",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:taffeta",
+     "value": "taffeta",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:viscose",
+     "value": "viscose",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:lycra",
+     "value": "lycra",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "fabric:crushed",
+     "value": "crushed",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "motif",
+   "key": "motif",
+   "label": "Motif",
+   "free_text": false,
+   "values": [
+    {
+     "id": "motif:floral",
+     "value": "floral",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:paisley",
+     "value": "paisley",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:peacock",
+     "value": "peacock",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:elephant",
+     "value": "elephant",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:jaal",
+     "value": "jaal",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:buti",
+     "value": "buti",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:geometric",
+     "value": "geometric",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:stripes",
+     "value": "stripes",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:checks",
+     "value": "checks",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:abstract",
+     "value": "abstract",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "motif:plain",
+     "value": "plain",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "work_placement",
+   "key": "work_placement",
+   "label": "Work placement",
+   "free_text": false,
+   "values": [
+    {
+     "id": "work_placement:all-over",
+     "value": "all-over",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "work_placement:border",
+     "value": "border",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "work_placement:yoke",
+     "value": "yoke",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "work_placement:neckline",
+     "value": "neckline",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "work_placement:scattered",
+     "value": "scattered",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "density",
+   "key": "density",
+   "label": "Work density",
+   "free_text": false,
+   "values": [
+    {
+     "id": "density:heavy",
+     "value": "heavy",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "density:medium",
+     "value": "medium",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "density:light",
+     "value": "light",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "finish",
+   "key": "finish",
+   "label": "Finish",
+   "free_text": false,
+   "values": [
+    {
+     "id": "finish:matte",
+     "value": "matte",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "finish:sheen",
+     "value": "sheen",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "finish:shimmer",
+     "value": "shimmer",
+     "family_id": null,
+     "hex": null
+    },
+    {
+     "id": "finish:metallic",
+     "value": "metallic",
+     "family_id": null,
+     "hex": null
+    }
+   ]
+  },
+  {
+   "id": "silhouette",
+   "key": "silhouette",
+   "label": "Silhouette",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "neckline",
+   "key": "neckline",
+   "label": "Neckline",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "sleeve_style",
+   "key": "sleeve_style",
+   "label": "Sleeve style",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "blouse_style",
+   "key": "blouse_style",
+   "label": "Blouse style",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "border_type",
+   "key": "border_type",
+   "label": "Border type",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "dupatta_colour",
+   "key": "dupatta_colour",
+   "label": "Dupatta colour",
+   "free_text": true,
+   "values": []
+  },
+  {
+   "id": "dupatta_drape",
+   "key": "dupatta_drape",
+   "label": "Dupatta drape",
+   "free_text": true,
+   "values": []
+  }
+ ],
+ "families": [
+  {
+   "id": "reds_pinks",
+   "key": "reds_pinks",
+   "label": "Reds and pinks",
+   "neighbour_keys": [
+    "oranges_yellows",
+    "purples"
+   ]
+  },
+  {
+   "id": "oranges_yellows",
+   "key": "oranges_yellows",
+   "label": "Oranges and yellows",
+   "neighbour_keys": [
+    "reds_pinks",
+    "greens",
+    "neutrals_metallics"
+   ]
+  },
+  {
+   "id": "greens",
+   "key": "greens",
+   "label": "Greens",
+   "neighbour_keys": [
+    "oranges_yellows",
+    "blues"
+   ]
+  },
+  {
+   "id": "blues",
+   "key": "blues",
+   "label": "Blues",
+   "neighbour_keys": [
+    "greens",
+    "purples"
+   ]
+  },
+  {
+   "id": "purples",
+   "key": "purples",
+   "label": "Purples",
+   "neighbour_keys": [
+    "blues",
+    "reds_pinks"
+   ]
+  },
+  {
+   "id": "neutrals_metallics",
+   "key": "neutrals_metallics",
+   "label": "Neutrals and metallics",
+   "neighbour_keys": [
+    "oranges_yellows"
+   ]
+  }
+ ]
+}

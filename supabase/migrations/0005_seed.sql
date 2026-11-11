@@ -301,5 +301,8 @@ insert into settings (key, value) values
   ('vocab_auto_promote_after', '5'::jsonb),
   ('similar_styles_count', '4'::jsonb),
   ('threshold_target_recall', '0.98'::jsonb),
-  ('judge_on_label', 'true'::jsonb)
+  ('judge_on_label', 'true'::jsonb),
+  ('raaha_feed_url', '"https://raahabyarchanabansal.in/wp-json/wc/store/v1/products"'::jsonb),
+  ('raaha_nightly_cost_cap_usd', '1'::jsonb),
+  ('default_import_cost_cap_usd', '2'::jsonb)
 on conflict (key) do nothing;

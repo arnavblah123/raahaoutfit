@@ -163,7 +163,9 @@ begin
     do update set occurrences = attribute_pending.occurrences + (case when p_by = 'ai' then 0 else 1 end)
   returning * into v_pending;
   if v_pending.status = 'merged' or v_pending.status = 'approved' then return v_pending.resolved_value_id; end if;
-  if p_by <> 'ai' and v_pending.status = 'pending' and v_pending.occurrences >= p_promote_after then
+  -- A value the merge pass thinks is a spelling of an existing one waits for the admin instead.
+  if p_by <> 'ai' and v_pending.status = 'pending' and v_pending.suggested_merge_id is null
+     and v_pending.occurrences >= p_promote_after then
     insert into attribute_values (group_id, value, origin, sort) values (p_group, v_norm, 'promoted', 9999)
       returning id into v_new;
     update attribute_pending set status = 'approved', resolved_value_id = v_new, resolved_at = now()

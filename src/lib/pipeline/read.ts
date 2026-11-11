@@ -1,6 +1,6 @@
 import { readOutfit, type Confidence, type Usage } from '../ai';
 import { forModel, type Bbox } from '../images';
-import { findValue, loadVocab } from '../vocab';
+import { findValue, loadVocab, type Vocab } from '../vocab';
 
 export type Suggestion = { group_id: string; group_key: string; value_ids: string[]; other: string; confidence: Confidence };
 export type ReadResult = {
@@ -11,8 +11,8 @@ export type ReadResult = {
 };
 
 /** Step 1. Attributes with low confidence come back blank, never guessed. */
-export async function runRead(jpegs: Buffer[], hint?: string): Promise<ReadResult> {
-  const vocab = await loadVocab();
+export async function runRead(jpegs: Buffer[], hint?: string, given?: Vocab): Promise<ReadResult> {
+  const vocab = given ?? await loadVocab();
   const { data, usage } = await readOutfit(await Promise.all(jpegs.map((j) => forModel(j))), vocab, hint);
   const suggestions: Suggestion[] = [];
   const proposals: { group_id: string; value: string }[] = [];

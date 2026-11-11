@@ -172,6 +172,7 @@ export async function deleteOutfit(outfitId: string) {
   const partners = (await pairsOf(outfitId)).map((p) => partner(p, outfitId));
   const photos = must(await db().from('outfit_photos').select('storage_path').eq('outfit_id', outfitId)) as any[];
   if (photos.length) await db().storage.from('outfits').remove(photos.map((p) => p.storage_path));
+  await db().from('label_pairs').delete().or(`and(left_kind.eq.guest,left_id.eq.${outfitId}),and(right_kind.eq.guest,right_id.eq.${outfitId})`);
   must(await db().from('outfits').delete().eq('id', outfitId), 'delete outfit');
   for (const id of partners) await recomputeResult(id, null);
 }
