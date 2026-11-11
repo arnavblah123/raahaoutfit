@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #fbf6f0;
+  --color-ink: #2b1a1f;
+  --color-muted: #75636a;
+  --color-line: #eaddd0;
+  --color-brand: #8a1c3c;
+  --color-brand-dark: #6c142e;
+  --color-gold: #b8862f;
+  --color-ok: #2f7d57;
+  --color-warn: #b4541a;
+  --font-display: "Fraunces", Georgia, serif;
+}
+
+body { background: var(--color-paper); color: var(--color-ink); -webkit-tap-highlight-color: transparent; }
+h1, h2 { font-family: var(--font-display); letter-spacing: -0.01em; }
+
+@layer components {
+  /* .btn-sm is declared after the buttons so it overrides their padding */
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-base font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none bg-brand text-white hover:bg-brand-dark; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-base font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none border border-line bg-white text-ink hover:border-brand; }
+  .btn-sm { @apply px-4 py-2 text-sm; }
+  .card { @apply rounded-2xl border border-line bg-white p-4; }
+  .field { @apply w-full rounded-xl border border-line bg-white px-4 py-3 text-base outline-none focus:border-brand; }
+  .label { @apply mb-1 block text-sm font-medium text-muted; }
+  .chip { @apply rounded-full border border-line bg-white px-3 py-1.5 text-sm capitalize transition; }
+  .chip-on { @apply border-brand bg-brand text-white; }
+  .note { @apply rounded-xl bg-[#f4ebe1] p-3 text-sm text-ink; }
+  .err { @apply rounded-xl bg-[#fde9e4] p-3 text-sm text-[#8c2a12]; }
+}
