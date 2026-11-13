@@ -43,8 +43,8 @@ export async function addStoredPhoto(referenceOutfitId: string, jpeg: Buffer, so
 /** Step 1 (Read) on the first image and Step 2 (embed) on every image of one reference outfit. Returns the AI cost. */
 export async function processReference(id: string, jobId: string | null): Promise<number> {
   const row = await one('select name, category, dataset_label from reference_outfits where id = $1', [id]);
-  const photos = await sql<{ id: string; image: Buffer | null; source_url: string | null }>(
-    'select id, image, source_url from reference_photos where reference_outfit_id = $1 order by sort', [id]);
+  const photos = await sql<{ id: string; image: Buffer | null; source_url: string | null; embedded: boolean }>(
+    'select id, image, source_url, embedding is not null as embedded from reference_photos where reference_outfit_id = $1 order by sort', [id]);
   if (!row || !photos.length) throw new Error('No photos');
   const bytes = (p: (typeof photos)[number]) => (p.image ? Promise.resolve(p.image) : fetchImage(p.source_url!));
   const first = await bytes(photos[0]);
@@ -80,6 +80,7 @@ export async function processReference(id: string, jobId: string | null): Promis
   const garmentNames = garmentIds.map((v) => group('garment_type').values.find((x) => x.id === v)?.value ?? '');
 
   for (const [i, p] of photos.entries()) {
+    if (p.embedded) continue;   // the admin's browser already computed this vector during upload
     const v = await embedImage(i === 0 ? first : await bytes(p));
     await sql('update reference_photos set embedding = $1::vector, embedding_model = $2 where id = $3', [toPgVector(v), embeddingModelTag(), p.id]);
   }
@@ -112,9 +113,17 @@ export async function runJob(jobId: string, deadline: number, onProgress?: (j: a
     if (!job || job.status !== 'running') return job;
     if (job.cost_spent_usd >= job.cost_cap_usd) return setStatus('cap_reached');
     if (Date.now() > deadline) return job;
+    // Claim a few rows. Rows claimed by a worker that died are released after ten minutes.
+    await sql(`update reference_outfits set status = 'pending' where batch_job_id = $1 and status = 'processing' and updated_at < now() - interval '10 minutes'`, [jobId]);
     const next = await sql<{ id: string }>(
-      `select id from reference_outfits where batch_job_id = $1 and status = 'pending' order by created_at limit 4`, [jobId]);
-    if (!next.length) return setStatus('done');
+      `update reference_outfits set status = 'processing', updated_at = now()
+       where id in (select id from reference_outfits where batch_job_id = $1 and status = 'pending' order by created_at limit 4 for update skip locked)
+       returning id`, [jobId]);
+    if (!next.length) {
+      // Nothing left to claim. If another worker is still busy with the last rows, let it finish the job.
+      const busy = await one(`select 1 from reference_outfits where batch_job_id = $1 and status = 'processing' limit 1`, [jobId]);
+      return busy ? job : setStatus('done');
+    }
     const results = await Promise.all(next.map(async (r) => {
       try { return { ok: true, cost: await processReference(r.id, jobId), error: '' }; }
       catch (e: any) {

@@ -4,7 +4,7 @@ import { createRequire } from 'module';
 const { chromium, devices } = createRequire(import.meta.url)('playwright');   // npm i -D playwright, or a global install
 import sharp from 'sharp';
 import pg from 'pg';
-import { mkdirSync, writeFileSync } from 'fs';
+import { copyFileSync, mkdirSync, writeFileSync } from 'fs';
 import assert from 'node:assert/strict';
 
 const BASE = process.env.E2E_BASE || 'http://localhost:3320';
@@ -285,6 +285,33 @@ const lines = (await csv.text()).trim().split('\n');
 assert.equal(csv.status(), 200); assert.equal(lines.length, 5); assert.ok(lines[0].includes('garment_type'));
 assert.equal((await anon.request.get(`${BASE}/api/admin/export/reference`)).status(), 401);
 ok('reference CSV export: 4 rows plus header; refused without sign-in');
+
+// IndoFashion: loaded from a folder in the browser, sampled evenly, men's classes skipped, processed while the page is open.
+for (const [dir, count] of [['saree', 3], ['lehenga', 2], ['men_kurta', 1]]) {
+  mkdirSync(`${SHOTS}/indo/${dir}`, { recursive: true });
+  for (let i = 1; i <= count; i++) copyFileSync(i % 2 ? RED : BLUE, `${SHOTS}/indo/${dir}/${i}.jpg`);
+}
+await M.goto(`${BASE}/admin/imports`);
+await M.locator('input[webkitdirectory]').setInputFiles(`${SHOTS}/indo`);
+await M.getByText('6 images found').waitFor();
+await M.fill('#indo-n', '4');
+await M.getByRole('button', { name: /Run as pilot/ }).click();
+await M.getByText(/4 images loaded/).waitFor({ timeout: 60_000 });
+for (let i = 0; i < 90; i++) {
+  if ((await q(`select count(*)::int as n from reference_outfits where source = 'indofashion' and status = 'processed'`))[0].n === 4) break;
+  await new Promise((r) => setTimeout(r, 1000));
+}
+const indo = await q(`select dataset_label, label_mismatch, guest_visible, (select count(*) from reference_photos p where p.reference_outfit_id = r.id and p.embedding is not null and p.image is not null)::int as photos
+                      from reference_outfits r where source = 'indofashion' order by dataset_label`);
+assert.deepEqual(indo.map((r) => [r.dataset_label, r.label_mismatch, r.guest_visible, r.photos]),
+  [['lehenga', false, false, 1], ['lehenga', false, false, 1], ['saree', true, false, 1], ['saree', true, false, 1]]);
+const [ijob] = await q(`select status, done, total from batch_jobs where kind = 'indofashion'`);
+assert.deepEqual([ijob.status, ijob.done, ijob.total], ['done', 4, 4]);
+await M.reload();
+await M.getByText('Dataset label against the garment type the AI picked').waitFor();
+assert.equal(await M.getByText('Run the pilot first').count(), 0);
+await shot(M, '12-admin-indofashion');
+ok('IndoFashion pilot from the browser: sampled evenly, men\'s class skipped, label mismatches flagged, never guest-visible');
 
 // ---------------------------------------------------------------- 9. Scheduled jobs
 assert.equal((await anon.request.get(`${BASE}/api/cron/purge`)).status(), 401);

@@ -1,4 +1,5 @@
-import { AutoRefresh, JobControls, RaahaRun } from '@/components/admin/Buttons';
+import { JobControls, JobRunner, RaahaRun } from '@/components/admin/Buttons';
+import { IndofashionImporter } from '@/components/admin/IndofashionImporter';
 import { one, sql } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 
@@ -19,11 +20,11 @@ export default async function Imports() {
   ]);
   const { raaha_done: raahaDone, raaha_pending: raahaPending, indo_done: indoDone, indo_pending: indoPending, spent, processed } = c;
   const perImage = processed ? spent / processed : null;
-  const anyRunning = jobs.some((j) => j.status === 'running');
+  const running = jobs.filter((j) => j.status === 'running').map((j) => j.id);
 
   return (
     <div className="space-y-8">
-      {anyRunning && <AutoRefresh seconds={5} />}
+      <JobRunner ids={running} />
       <section className="space-y-3">
         <h1 className="text-2xl font-semibold">Raaha catalogue</h1>
         <p className="text-sm text-muted">{raahaDone} products ready, {raahaPending} waiting. Pulled every night from {s.raaha_feed_url}</p>
@@ -32,7 +33,8 @@ export default async function Imports() {
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">IndoFashion (internal only, never shown to guests)</h2>
-        <p className="text-sm text-muted">{indoDone} images processed, {indoPending} waiting. Images are loaded with <code>npm run import:indofashion</code>; a 10,000 batch waits below for your approval.</p>
+        <p className="text-sm text-muted">{indoDone} images processed, {indoPending} waiting. Run a pilot of 500 first, review the mismatches, then load the larger batch, which waits below for your approval.</p>
+        <IndofashionImporter defaultCap={s.default_import_cost_cap_usd} />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <div className="card"><p className="text-sm text-muted">Measured AI cost per image</p><p className="text-2xl font-semibold">{perImage == null ? 'n/a' : usd(perImage, 5)}</p></div>
           <div className="card"><p className="text-sm text-muted">Estimate for 10,000 images</p><p className="text-2xl font-semibold">{perImage == null ? 'Run the pilot first' : usd(perImage * 10000)}</p></div>
@@ -65,14 +67,14 @@ export default async function Imports() {
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span><span className="font-medium capitalize">{j.kind.replace(/_/g, ' ')}</span>{j.params?.brand ? ` · ${j.params.brand}` : ''} · {new Date(j.created_at).toLocaleString('en-IN')}</span>
                 <span className={`rounded-full px-2 py-0.5 text-xs ${j.status === 'running' ? 'bg-[#e3f3ea] text-[#1f6143]' : j.status === 'done' ? 'bg-line' : 'bg-[#fdeed8] text-[#8a4a0c]'}`}>
-                  {j.status === 'pending' ? 'waiting for approval' : j.status.replace(/_/g, ' ')}
+                  {j.status === 'pending' ? (j.params?.uploading ? 'loading images' : 'waiting for approval') : j.status.replace(/_/g, ' ')}
                 </span>
               </div>
               <div className="h-3 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={Math.round(share * 100)} aria-valuemin={0} aria-valuemax={100}>
                 <div className="h-3 rounded-full bg-brand transition-all" style={{ width: `${share * 100}%` }} />
               </div>
               <p className="text-sm text-muted">{j.done} of {j.total} done{j.failed ? `, ${j.failed} failed` : ''} · spent {usd(j.cost_spent_usd, 4)} of {usd(j.cost_cap_usd)} cap{j.last_error ? ` · last error: ${j.last_error}` : ''}</p>
-              {j.status !== 'done' && <JobControls id={j.id} status={j.status} capUsd={Number(j.cost_cap_usd)} failed={j.failed} />}
+              {j.status !== 'done' && !j.params?.uploading && <JobControls id={j.id} status={j.status} capUsd={Number(j.cost_cap_usd)} failed={j.failed} />}
             </div>
           );
         })}

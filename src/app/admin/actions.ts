@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { adminLogin, adminLogout, isAdmin } from '@/lib/admin';
 import { isUuid, one, sql, transaction } from '@/lib/db';
-import { normalise } from '@/lib/images';
-import { labelMismatch } from '@/lib/indofashion';
+import { embeddingModelTag, normaliseVector, toPgVector } from '@/lib/embed/server';
+import { forModel, normalise } from '@/lib/images';
+import { canonicalClass, labelMismatch } from '@/lib/indofashion';
 import { loadAttributes, type ItemKind, type ItemRef } from '@/lib/items';
 import { PermissionMissing, brandImport, raahaImport, recalcThreshold, vocabMergePass } from '@/lib/jobs';
 import { judgeItems } from '@/lib/pipeline/match';
@@ -246,6 +247,72 @@ export async function jobAction(id: string, action: 'start' | 'pause' | 'resume'
     if (status === 'running') after(() => runJob(id, Date.now() + 240_000).catch((e) => console.error(e)));
     revalidatePath('/admin/imports');
     return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Advance a running job for a short while. The Imports page calls this in a loop while it is open. */
+export async function tickJob(id: string): Promise<Result<{ status: string; done: number; failed: number; total: number }>> {
+  try {
+    await admin();
+    if (!isUuid(id)) throw new Error('Job not found');
+    const job = await runJob(id, Date.now() + 40_000);
+    if (!job) throw new Error('Job not found');
+    return { ok: true, status: job.status, done: job.done, failed: job.failed, total: job.total };
+  } catch (e) { return fail(e); }
+}
+
+// ------------------------------------------------------------------ IndoFashion (internal only)
+/** Open (or reopen) the upload job. It stays "pending" while images upload, so nothing is processed early. */
+export async function openIndofashionJob(costCap: number, n: number, pilot: boolean): Promise<Result<{ jobId: string }>> {
+  try {
+    await admin();
+    const s = await getSettings();
+    const existing = await one<{ id: string }>(`select id from batch_jobs where kind = 'indofashion' and status = 'pending' and (params->>'uploading')::boolean order by created_at desc limit 1`);
+    if (existing) return { ok: true, jobId: existing.id };
+    const job = await createJob('indofashion', cap(costCap, s.default_import_cost_cap_usd), { n, pilot, uploading: true }, 'pending');
+    return { ok: true, jobId: job.id };
+  } catch (e) { return fail(e); }
+}
+
+/** A few images per call: each with its dataset label and, when the browser computed one, its embedding. */
+export async function uploadIndofashionBatch(form: FormData): Promise<Result<{ added: number }>> {
+  try {
+    await admin();
+    const jobId = String(form.get('job_id'));
+    if (!isUuid(jobId)) throw new Error('Job not found');
+    const meta = JSON.parse(String(form.get('meta') ?? '[]')) as { external_id: string; label: string; embedding?: number[] }[];
+    const files = form.getAll('images').filter((f): f is File => f instanceof File);
+    let added = 0;
+    for (const [i, m] of meta.slice(0, 12).entries()) {
+      const file = files[i];
+      const externalId = clean(m.external_id, 300), label = clean(m.label, 60);
+      if (!file || !externalId || !canonicalClass(label)) continue;
+      if (await one(`select 1 from reference_outfits where source = 'indofashion' and external_id = $1`, [externalId])) continue;
+      const jpeg = await forModel((await normalise(Buffer.from(await file.arrayBuffer()))).jpeg, 768);
+      const vector = m.embedding ? normaliseVector(m.embedding) : null;
+      await transaction(async (q) => {
+        const [row] = await q<{ id: string }>(
+          `insert into reference_outfits (source, external_id, dataset_label, category, status, batch_job_id) values ('indofashion', $1, $2, $2, 'pending', $3) returning id`,
+          [externalId, label, jobId]);
+        await q('insert into reference_photos (reference_outfit_id, image, sort, embedding, embedding_model) values ($1, $2, 0, $3::vector, $4)',
+          [row.id, jpeg, vector ? toPgVector(vector) : null, vector ? embeddingModelTag() : null]);
+      });
+      added++;
+    }
+    return { ok: true, added };
+  } catch (e) { return fail(e); }
+}
+
+/** Upload finished. A pilot starts straight away; a larger batch waits for approval and a cost cap. */
+export async function finishIndofashionUpload(jobId: string, start: boolean): Promise<Result<{ total: number }>> {
+  try {
+    await admin();
+    if (!isUuid(jobId)) throw new Error('Job not found');
+    const total = await setJobTotal(jobId);
+    await sql(`update batch_jobs set params = params - 'uploading', status = case when $2 then 'running' else status end,
+               started_at = case when $2 then now() else started_at end where id = $1`, [jobId, start && total > 0]);
+    revalidatePath('/admin/imports');
+    return { ok: true, total };
   } catch (e) { return fail(e); }
 }
 

@@ -112,19 +112,24 @@ Every import is a batch job with a cost cap. Jobs are resumable: progress lives 
 
 ### IndoFashion (waiting for approval)
 
-Nothing has been downloaded. The repository at github.com/IndoFashion/IndoFashion carries an MIT licence for the code; the README states no licence or terms for the dataset itself, and the dataset is obtained by filling in the authors' request form, after which they send a download script. Once you approve and have the files:
+Approved for internal use; not yet loaded. The repository at github.com/IndoFashion/IndoFashion carries an MIT licence for the code; the README states no licence or terms for the dataset itself. The dataset is obtained by filling in the authors' request form, after which they send a download script.
+
+**In the browser (no terminal).** Once the dataset is unpacked on your computer, open `/admin/imports`:
+
+1. Press **Choose dataset folder** and pick the dataset's top folder. If the dataset has a metadata file with `image_path` and `class_label` per row, choose it too; otherwise each image's folder name is taken as its label.
+2. Leave **Images** at 500 and press **Run as pilot**. The page samples evenly across the women's garment classes (men's classes and accessories are skipped), shrinks each image to 768 px, loads it, then reads and embeds each one. Keep the page open until the progress bar is full.
+3. The page then shows a table of dataset label against the garment type the AI picked, the measured cost per image and the estimate for 10,000. Mismatches are flagged on `/admin/reference`.
+4. For the larger batch, set **Images** to 10000 and press **Load as batch**. It waits in the job list until you set a cap and press **Approve and start**. Jobs are resumable: closing the page pauses the work, and reopening it carries on.
+
+**From the command line.** The same thing with scripts:
 
 ```bash
 npm run import:indofashion -- --root data/indofashion --metadata data/indofashion/train_data.json --n 500 --cap 2
 ```
 
-That runs the pilot: 500 images sampled evenly across the women's garment classes (men's classes and accessories skipped), Read and embed on each, and a table of dataset label against the garment type the AI picked. Mismatches are flagged on `/admin/reference`. For the larger batch:
-
 ```bash
 npm run import:indofashion -- --root data/indofashion --metadata data/indofashion/train_data.json --n 10000 --register-only
 ```
-
-The batch then waits on `/admin/imports`, which shows the estimated cost from the pilot, lets you set a cap and start it, and shows a progress bar. Process it with:
 
 ```bash
 npm run worker

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { deleteBrand, importBrand, jobAction, labelFeedback, resolvePending, runRaahaNow, runThresholdNow, runVocabPass, saveBrand, saveSettings, toggleBrand } from '@/app/admin/actions';
+import { deleteBrand, importBrand, jobAction, tickJob, labelFeedback, resolvePending, runRaahaNow, runThresholdNow, runVocabPass, saveBrand, saveSettings, toggleBrand } from '@/app/admin/actions';
 import { LABEL_NAMES } from '@/lib/accuracy';
 
 /** Runs a server action, shows its message, refreshes the page data. */
@@ -162,6 +162,28 @@ export function SettingsEditor({ values }: { values: Record<string, unknown> }) 
       <div className="flex items-center gap-3"><button className="btn-primary btn-sm" disabled={a.pending}>Save settings</button><Msg text={a.msg} /></div>
     </form>
   );
+}
+
+/**
+ * Keeps running jobs moving while the Imports page is open: each call works for under a minute,
+ * then the page refreshes its numbers. Closing the page pauses nothing permanently; the daily
+ * cron and the next visit pick the job up again.
+ */
+export function JobRunner({ ids }: { ids: string[] }) {
+  const router = useRouter();
+  const key = ids.join(',');
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      while (!stop && key) {
+        for (const id of key.split(',')) { if (stop) break; await tickJob(id).catch(() => null); }
+        if (!stop) router.refresh();
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    })();
+    return () => { stop = true; };
+  }, [key, router]);
+  return null;
 }
 
 export function AutoRefresh({ seconds }: { seconds: number }) {
