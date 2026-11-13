@@ -1,11 +1,14 @@
 // Local stand-ins for the two outside services, so the whole app can be exercised without keys:
 //   :4801  Anthropic Messages API (Read and Judge answers are canned; POST /_set changes them)
 //   :4802  embedding server (vector = the photo's mean colour, so similar photos get similar vectors)
+//   :4803  Google sign-in (always signs in as state.googleUser)
 import { createServer } from 'http';
 import sharp from 'sharp';
+import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
 const state = {
   notOutfit: false,
+  googleUser: { sub: 'g-1', email: 'zoya@example.com', given_name: 'Zoya' },
   judge: { verdict: 'same_outfit', confidence: 'high', reason: 'Same floral jaal layout and gota border in the same red family.', missing_evidence: '', limiting_side: 'none' },
   calls: { read: 0, judge: 0, vocab: 0 },
 };
@@ -51,4 +54,23 @@ createServer(async (req, res) => {
   channels.slice(0, 3).forEach((c, i) => { v[i] = c.mean / 255 + 0.001; });
   send(res, 200, { embedding: v });
 }).listen(4802);
+const { publicKey, privateKey } = await generateKeyPair('RS256');
+const jwk = { ...(await exportJWK(publicKey)), kid: 'stub', alg: 'RS256', use: 'sig' };
+createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost:4803');
+  if (url.pathname === '/jwks') return send(res, 200, { keys: [jwk] });
+  if (url.pathname === '/auth') {
+    const back = new URL(url.searchParams.get('redirect_uri'));
+    back.searchParams.set('code', 'stub-code'); back.searchParams.set('state', url.searchParams.get('state'));
+    res.writeHead(302, { location: back.toString() }); return res.end();
+  }
+  if (url.pathname === '/token') {
+    const form = new URLSearchParams((await body(req)).toString());
+    const id_token = await new SignJWT({ ...state.googleUser, email_verified: true })
+      .setProtectedHeader({ alg: 'RS256', kid: 'stub' }).setIssuer('http://localhost:4803').setAudience(form.get('client_id'))
+      .setSubject(state.googleUser.sub).setIssuedAt().setExpirationTime('5m').sign(privateKey);
+    return send(res, 200, { id_token, access_token: 'x' });
+  }
+  send(res, 404, {});
+}).listen(4803);
 console.log('stubs ready');

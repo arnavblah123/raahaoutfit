@@ -14,8 +14,8 @@ export async function POST(req: Request) {
   const code = newJoinCode(), token = newToken(), recovery = newToken();
   await transaction(async (q) => {
     const [w] = await q<{ id: string }>(
-      'insert into weddings (couple_names, wedding_date, city, join_code, colour_map_enabled) values ($1, $2, $3, $4, $5) returning id',
-      [couple, date, city, code, !!body?.colour_map_enabled]);
+      'insert into weddings (couple_names, wedding_date, city, join_code, colour_map_enabled, require_approval) values ($1, $2, $3, $4, $5, $6) returning id',
+      [couple, date, city, code, !!body?.colour_map_enabled, !!body?.require_approval]);
     for (const f of functions) await q('insert into functions (wedding_id, kind, custom_name, sort) values ($1, $2, $3, $4)', [w.id, f.kind, f.custom_name, f.sort]);
     await q(`insert into guests (wedding_id, display_name, role, token_hash, recovery_token_hash) values ($1, $2, 'creator', $3, $4)`,
       [w.id, name, hashToken(token), hashToken(recovery)]);

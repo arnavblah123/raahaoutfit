@@ -37,6 +37,7 @@ Copy `.env.example` to `.env.local` for local work, and set the same values in V
 | `ADMIN_PASSWORD` | Password for `/admin` |
 | `SESSION_SECRET` | Long random string that signs the admin session cookie |
 | `CRON_SECRET` | Vercel Cron sends it to the scheduled-job routes as a bearer token |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Set both to switch on Google sign-in for guests |
 | `ANTHROPIC_API_KEY` | Key for the Read and Judge models |
 | `AI_READ_MODEL`, `AI_JUDGE_MODEL`, `AI_VOCAB_MODEL` | Model names. Defaults: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` |
 | `AI_READ_EFFORT`, `AI_JUDGE_EFFORT` | Effort level per step (`low`, `medium`, `high`; `none` to omit) |
@@ -187,6 +188,11 @@ DATABASE_URL=postgres://... ADMIN_PASSWORD=test SESSION_SECRET=0123456789abcdef0
 DATABASE_URL=postgres://... ADMIN_PASSWORD=test CRON_SECRET=test npm run test:e2e
 ```
 
-## Later
+## Guest verification (optional)
 
-- **Google sign-in:** `guests.auth_user_id` is reserved for it. The policies key on the guest id the server sets, so a signed-in session only needs to resolve to the same guest.
+Guests join with just a name by default. Two optional checks can be added per wedding:
+
+- **Host approval.** The host ticks "Approve each guest myself" when creating the wedding or in Wedding settings. New guests wait, and cannot add outfits, until the host lets them in. The host sees only the name they typed.
+- **Google sign-in.** Switched on for the whole app by setting `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Guests then see "Continue with Google" next to the name form, and a signed-in guest can get back to her outfits from any device. A name-only guest can connect Google later. The host can also require Google for a wedding, which switches name-only joining off.
+
+To set up Google sign-in: in Google Cloud Console create a project, configure the OAuth consent screen (External, then publish it), and create an OAuth client of type "Web application" with the authorised redirect URI `<NEXT_PUBLIC_APP_URL>/api/auth/google/callback`. Put the client ID and secret in the two environment variables and redeploy. The sign-in is a plain OAuth code flow verified against Google's public keys; no outside auth service is involved. The email is stored on the guest row, never shown to the host or other guests, and deleted with everything else 7 days after the wedding.

@@ -17,7 +17,7 @@ export default async function AddPage({ params, searchParams }: {
   const wedding = await getWedding(code);
   if (!wedding || wedding.purged_at) notFound();
   const guest = await getGuest(wedding);
-  if (!guest) redirect(`/w/${code}`);
+  if (!guest || guest.status !== 'approved') redirect(`/w/${code}`);
   const [vocab, functions] = await Promise.all([
     loadVocab(),
     sql('select id, kind, custom_name from functions where wedding_id = $1 order by sort', [wedding.id]),

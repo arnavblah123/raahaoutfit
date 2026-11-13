@@ -54,7 +54,7 @@ const A = await (await browser.newContext(phone)).newPage();
 await A.goto(`${BASE}/create`);
 await A.fill('#couple', 'Aanya and Kabir'); await A.fill('#city', 'Jaipur'); await A.fill('#name', 'Meera');
 await A.fill('#date', new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
-await A.getByRole('checkbox').check();
+await A.getByRole('checkbox', { name: /colour map/ }).check();
 await A.getByRole('button', { name: /Create and get the link/ }).click();
 await A.waitForURL(/\/w\/[a-z0-9]+$/);
 const code = A.url().split('/').pop();
@@ -205,6 +205,63 @@ const R = await (await browser.newContext(phone)).newPage();
 await R.goto(`${BASE}/r/${recovery}`);
 await R.getByText('Hello Meera').waitFor();
 ok('recovery link restores the guest on a new browser');
+
+// ---------------------------------------------------------------- 7b. Host approval and Google sign-in
+const newPhone = async () => (await browser.newContext(phone)).newPage();
+await A.goto(`${BASE}/w/${code}/settings`);
+await A.getByRole('checkbox', { name: /Approve each guest myself/ }).check();
+await A.waitForResponse((r) => r.url().endsWith('/settings') && r.request().method() === 'PATCH').catch(() => {});
+const D = await newPhone();
+await D.goto(`${BASE}/w/${code}`);
+await D.getByText('The host approves each guest').waitFor();
+await D.fill('#name', 'Dev'); await D.getByRole('button', { name: 'Join', exact: true }).click();
+await D.getByText('Waiting for the host').waitFor();
+assert.equal(await D.getByRole('link', { name: 'Add outfit' }).count(), 0);
+assert.equal((await D.request.post(`${BASE}/api/w/${code}/outfits`, { multipart: { function_id: 'x' } })).status(), 403);
+await A.goto(`${BASE}/w/${code}`);
+await A.getByText('1 guest is waiting for your approval').click();
+await A.getByRole('button', { name: 'Let in' }).click();
+await A.getByText('Asking to join').waitFor({ state: 'detached' });
+await D.reload(); await D.getByText('Hello Dev').waitFor();
+ok('host approval: a new guest waits, cannot upload, and gets in once the host says yes');
+
+const E = await newPhone();
+await E.goto(`${BASE}/w/${code}`);
+await E.getByRole('link', { name: 'Continue with Google' }).click();
+await E.getByText('Waiting for the host').waitFor();
+await E.getByText('Hello Zoya').waitFor();
+await A.goto(`${BASE}/w/${code}/settings`);
+await A.getByText('Google', { exact: true }).waitFor();
+await shot(A, '07b-host-approval');
+await A.getByRole('button', { name: 'Decline' }).click();
+await E.reload(); await E.getByText('The host has not approved this request').waitFor();
+await A.reload(); await A.getByRole('button', { name: 'Let in' }).click();
+await E.reload(); await E.getByText('Hello Zoya').waitFor();
+const E2 = await newPhone();                      // same Google account, another phone
+await E2.goto(`${BASE}/w/${code}`);
+await E2.getByRole('link', { name: 'Continue with Google' }).click();
+await E2.getByText('Hello Zoya').waitFor();
+assert.deepEqual(await q(`select display_name, email, status from guests where google_sub = 'g-1'`), [{ display_name: 'Zoya', email: 'zoya@example.com', status: 'approved' }]);
+ok('Google sign-in: creates the guest once, respects host approval, and the same account gets back in from another phone');
+
+await setStub({ googleUser: { sub: 'g-2', email: 'dev@example.com', given_name: 'Devendra' } });
+await D.getByRole('link', { name: 'Connect Google' }).click();
+await D.getByText('Hello Dev').waitFor();
+assert.equal(await D.getByRole('link', { name: 'Connect Google' }).count(), 0);
+assert.equal((await q(`select google_sub from guests where display_name = 'Dev'`))[0].google_sub, 'g-2');
+ok('a name-only guest can connect Google to her existing outfits');
+
+await A.goto(`${BASE}/w/${code}/settings`);
+await A.getByRole('checkbox', { name: /Guests must sign in with Google/ }).check();
+await A.waitForResponse((r) => r.url().endsWith('/settings') && r.request().method() === 'PATCH').catch(() => {});
+const F = await newPhone();
+await F.goto(`${BASE}/w/${code}`);
+await F.getByRole('link', { name: 'Continue with Google' }).waitFor();
+assert.equal(await F.locator('#name').count(), 0);
+assert.equal((await F.request.post(`${BASE}/api/w/${code}/join`, { data: { name: 'Sneaky' } })).status(), 403);
+const forged = await F.request.get(`${BASE}/api/auth/google/callback?code=stub-code&state=made-up`, { maxRedirects: 0 });
+assert.ok([302, 303, 307].includes(forged.status()) && !(forged.headers().location ?? '').includes('/w/'), 'a callback without the matching state signs nobody in');
+ok('"must sign in with Google": name-only joining is switched off; forged callbacks are ignored');
 
 // ---------------------------------------------------------------- 8. Admin
 const adminCtx = await browser.newContext({ viewport: { width: 1200, height: 900 } });

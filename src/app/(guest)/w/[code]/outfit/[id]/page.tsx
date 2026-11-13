@@ -16,7 +16,7 @@ export default async function OutfitPage({ params }: { params: Promise<{ code: s
   const wedding = await getWedding(code);
   if (!wedding || wedding.purged_at) notFound();
   const guest = await getGuest(wedding);
-  if (!guest) redirect(`/w/${code}`);
+  if (!guest || guest.status !== 'approved') redirect(`/w/${code}`);
   const outfit = await ownOutfit(guest, id);
   if (!outfit) notFound();
   if (outfit.status !== 'confirmed') redirect(`/w/${code}/add?function=${outfit.function_id}&outfit=${id}`);
