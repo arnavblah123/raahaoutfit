@@ -23,11 +23,7 @@ Guests read one table for results, `outfit_results`, which has a verdict and a r
 ### 1. Neon
 
 1. In Vercel, open your project's Storage tab and add **Neon**. This creates the database and sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED` on the project. (Or create a database at neon.tech and copy both connection strings yourself.)
-2. Apply the schema. With the two variables in `.env.local`:
-   ```bash
-   npm run db:migrate
-   ```
-   This runs the files in `db/migrations` in order, once each: tables, row-level security, SQL functions, seed vocabulary. It enables the `vector` extension itself.
+2. That is all. Every deploy applies the files in `db/migrations` before building (tables, row-level security, SQL functions, seed vocabulary), once each, and enables the `vector` extension itself. To apply them by hand from your own machine, put the two variables in `.env.local` and run `npm run db:migrate`.
 
 ### 2. Environment variables
 
