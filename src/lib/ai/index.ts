@@ -113,7 +113,7 @@ export async function readOutfit(jpegs: Buffer[], vocab: Vocab, hint?: string) {
   content.push(text(`${hint ? `Listing text (may help, may be wrong): ${hint}\n` : ''}Return one entry in "photos" per photo, in order, and one entry in "attributes" for every group.`));
   return callJson<ReadOutput>({
     step: 'read', model: models.read, system: readSystem(vocab), content, schema,
-    effort: process.env.AI_READ_EFFORT || 'low', maxTokens: 6000,
+    effort: process.env.AI_READ_EFFORT || 'medium', maxTokens: 8000,
   });
 }
 

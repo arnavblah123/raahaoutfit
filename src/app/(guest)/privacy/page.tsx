@@ -2,7 +2,7 @@ export const metadata = { title: 'Privacy | Outfit Clash' };
 
 export default function Privacy() {
   const items: [string, string][] = [
-    ['What we ask for', 'Your first name and photos of your outfit. No phone number, email or password.'],
+    ['What we ask for', 'Your first name and two or more photos of your outfit. No phone number, email or password.'],
     ['Your face is not needed', 'Please crop your face out, or photograph the outfit on a hanger. We also crop every photo to the outfit automatically and throw the original away straight after.'],
     ['Nobody else sees your photos', 'Other guests and the host never see your photo or your name next to an outfit. A guest is only told that a similar outfit exists, never whose it is.'],
     ['How the check works', 'An AI model reads the outfit (garment, colour, work) and compares it with other outfits for the same function at the same wedding. Photos are sent to our AI provider for this and nothing else.'],

@@ -8,6 +8,7 @@ import { getSettings } from '@/lib/settings';
 import { logUsage } from '@/lib/usage';
 
 export const maxDuration = 120;
+const MAX_EXTRA_AT_UPLOAD = 3;
 
 /** Upload two photos, run Step 1 (Read), store only the cropped images. */
 export async function POST(req: Request, { params }: { params: Promise<{ code: string }> }) {
@@ -27,9 +28,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
     return Response.json({ error: `You can add up to ${s.max_outfits_per_function} outfits per function. Delete one to add another.` }, { status: 409 });
   }
 
-  let full, closeup;
+  let full, closeup, extras;
   try {
     [full, closeup] = await Promise.all([readUpload(form.get('full')), readUpload(form.get('closeup'))]);
+    extras = await Promise.all(form.getAll('extra').slice(0, MAX_EXTRA_AT_UPLOAD).map((f) => readUpload(f)));
   } catch (e) {
     if (e instanceof UploadError) return Response.json({ error: e.message }, { status: 400 });
     throw e;
@@ -39,7 +41,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
 
   let read;
   try {
-    read = await runRead([full.jpeg, closeup.jpeg]);
+    read = await runRead([full.jpeg, closeup.jpeg, ...extras.map((e) => e.jpeg)]);   // every photo is read together
   } catch (e: any) {
     await logUsage(e?.usage, {});
     if (e instanceof AiError) return Response.json({ error: 'We could not read those photos just now. Please try again.' }, { status: 503 });
@@ -59,6 +61,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   const photos = await Promise.all([
     storeCropped({ outfitId: outfit.id, kind: 'full', image: full, bbox: read.photos[0]?.bbox }),
     storeCropped({ outfitId: outfit.id, kind: 'closeup', image: closeup, bbox: read.photos[1]?.bbox }),
+    ...extras.map((image, i) => storeCropped({ outfitId: outfit.id, kind: 'extra' as const, image, bbox: read.photos[2 + i]?.bbox })),
   ]);
   for (const sg of read.suggestions) {
     for (const [i, valueId] of sg.value_ids.entries()) {

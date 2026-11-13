@@ -4,7 +4,7 @@ import ReactCrop, { type PercentCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
 const MAX_EDGE = 1600;
-const MAX_BYTES = 1_500_000;
+const MAX_BYTES = 800_000;   // up to five photos go in one request
 
 /** Draw the chosen crop to a canvas. Re-encoding also drops EXIF (location, device) before upload. */
 async function cropAndCompress(img: HTMLImageElement, c: PercentCrop): Promise<Blob> {
@@ -14,9 +14,17 @@ async function cropAndCompress(img: HTMLImageElement, c: PercentCrop): Promise<B
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(sw * scale)); canvas.height = Math.max(1, Math.round(sh * scale));
   canvas.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  for (const q of [0.85, 0.75, 0.65, 0.5]) {
-    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', q));
-    if (blob && (blob.size <= MAX_BYTES || q === 0.5)) return blob;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const q of [0.85, 0.75, 0.65, 0.5]) {
+      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', q));
+      if (blob && blob.size <= MAX_BYTES) return blob;
+    }
+    // Still too big (very detailed photo): shrink the picture and try again.
+    const smaller = document.createElement('canvas');
+    smaller.width = Math.round(canvas.width * 0.75); smaller.height = Math.round(canvas.height * 0.75);
+    smaller.getContext('2d')!.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+    canvas.width = smaller.width; canvas.height = smaller.height;
+    canvas.getContext('2d')!.drawImage(smaller, 0, 0);
   }
   throw new Error('Could not prepare the photo');
 }

@@ -33,11 +33,12 @@ async function pick(page, index, file) {
   await page.locator('input[type=file]').nth(index).setInputFiles(file);
   await page.getByRole('button', { name: 'Use this crop' }).click();
 }
-async function addOutfit(page, code, files, { consent = false, colour = 'red' } = {}) {
+async function addOutfit(page, code, files, { consent = false, colour = 'red', extra = null } = {}) {
   await page.goto(`${BASE}/w/${code}`);
   await page.getByRole('link', { name: 'Add outfit' }).first().click();
   await page.waitForURL(/\/add/);
   await pick(page, 0, files[0]); await pick(page, 1, files[1]);
+  if (extra) await pick(page, 2, extra);
   if (consent) await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('heading', { name: 'Check the details' }).waitFor({ timeout: 60_000 });
@@ -63,14 +64,17 @@ await shot(A, '01-home-creator');
 ok(`wedding created with join code of ${code.length} characters, share and recovery links shown`);
 
 // ---------------------------------------------------------------- 2. First outfit: read, confirm, no clash
-let confirm = await addOutfit(A, code, [RED, RED2], { consent: true });
+let confirm = await addOutfit(A, code, [RED, RED2], { consent: true, extra: RED3 });
 await shot(A, '02-confirm');
 assert.equal(await A.getByRole('button', { name: 'lehenga choli' }).getAttribute('class').then((c) => c.includes('chip-on')), true, 'AI garment suggestion pre-selected');
 assert.equal(await A.locator('#colour button[aria-pressed=true]').count(), 0, 'colour is never pre-selected');
 await A.getByRole('button', { name: /Confirm and check/ }).click();
 await A.getByText('Pick the colour of your outfit').waitFor();
 ok('confirming without a colour is refused');
-await A.getByRole('button', { name: 'red', exact: true }).click();
+await A.getByText('From your photos, we think it is').waitFor();
+await A.getByRole('button', { name: 'Use suggested colour red' }).click();
+assert.equal(await A.locator('#colour button[aria-pressed=true]').count(), 2, 'confirming the guess selects the swatch too');
+ok('the colour the app thinks it is is shown, and one tap confirms it');
 await A.getByRole('button', { name: /Confirm and check/ }).click();
 await A.waitForURL(/\/outfit\//, { timeout: 90_000 });
 await A.getByText('No clash').first().waitFor();
@@ -83,6 +87,8 @@ const meta = await sharp(pa.image).metadata();
 assert.ok(!meta.exif && !pa.image.includes('secret-exif-marker'), 'EXIF stripped');
 assert.ok(meta.height < 1300 * 0.9 && pa.bbox.y > 0, 'stored image is cropped to the outfit box');
 assert.ok(pa.embedded);
+assert.deepEqual((await q('select kind from outfit_photos where outfit_id = $1 order by kind', [outfitA])).map((r) => r.kind), ['closeup', 'extra', 'full'], 'optional third photo stored');
+assert.equal((await (await fetch('http://localhost:4801/_state')).json()).calls.read, 1, 'all photos read in one call');
 ok(`stored photo is cropped (${meta.width}x${meta.height}), has no EXIF, and is embedded`);
 const attrs = await q(`select g.key, v.value, a.other_text, a.confirmed from outfit_attributes a join attribute_groups g on g.id = a.group_id left join attribute_values v on v.id = a.value_id where a.outfit_id = $1`, [outfitA]);
 assert.ok(attrs.every((a) => a.confirmed) && attrs.some((a) => a.key === 'colour' && a.value === 'red'));
@@ -127,6 +133,17 @@ await A.waitForResponse((r) => r.url().endsWith('/seen')).catch(() => {});
 await A.goto(`${BASE}/w/${code}`);
 assert.equal(await A.getByText('New since your last visit').count(), 0);
 ok('earlier guest is told on her next visit; colour map shows counts only');
+
+// A guest can add another photo whenever she likes; her outfit is checked again with it.
+const judgedBefore = (await (await fetch('http://localhost:4801/_state')).json()).calls.judge;
+await B.getByText('Add another photo of this outfit').click();
+await pick(B, 0, RED3);
+await Promise.all([B.waitForResponse((r) => r.url().endsWith('/rematch'), { timeout: 90_000 }), B.getByRole('button', { name: 'Add and check again' }).click()]);
+await B.waitForLoadState('load'); await B.getByText('Same outfit').first().waitFor();
+assert.equal((await q('select count(*)::int as n from outfit_photos where outfit_id = $1 and embedding is not null', [outfitB]))[0].n, 3);
+assert.equal((await (await fetch('http://localhost:4801/_state')).json()).calls.judge, judgedBefore + 1, 'pair re-judged with the new photo');
+assert.equal((await q('select rounds from outfit_pairs'))[0].rounds, 0, 'a volunteered photo does not use up an extra round');
+ok('a guest can add another photo at any time and the check re-runs with it');
 
 // ---------------------------------------------------------------- 5. Unsure judge: extra photo rounds, then "Possible clash"
 await setStub({ judge: { verdict: 'similar_look', confidence: 'medium', reason: 'Similar zari work on a red lehenga.', missing_evidence: 'close-up of the border', limiting_side: 'both' } });
@@ -280,7 +297,7 @@ assert.deepEqual([purge.weddings, purge.outfitsPurged, purge.keptWithConsent], [
 const left = (await q(`select (select count(*) from guests)::int as guests, (select count(*) from outfits)::int as outfits, (select count(*) from outfit_photos)::int as photos,
   (select count(*) from outfit_attributes)::int as attrs, (select count(*) from training_photos)::int as kept, (select purged_stats from weddings limit 1) as stats`))[0];
 assert.deepEqual([left.guests, left.outfits, left.photos, left.attrs], [0, 0, 0, 0]);
-assert.equal(left.kept, 2); assert.equal(left.stats.outfits, 2);
+assert.equal(left.kept, 3); assert.equal(left.stats.outfits, 2);
 await A.goto(`${BASE}/w/${code}`);
 await A.getByText('This wedding has ended').waitFor();
 ok('purge after 7 days: names, photos, vectors and attributes deleted; consented crops kept without any link; counts retained');

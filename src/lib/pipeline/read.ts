@@ -13,7 +13,7 @@ export type ReadResult = {
 /** Step 1. Attributes with low confidence come back blank, never guessed. */
 export async function runRead(jpegs: Buffer[], hint?: string, given?: Vocab): Promise<ReadResult> {
   const vocab = given ?? await loadVocab();
-  const { data, usage } = await readOutfit(await Promise.all(jpegs.map((j) => forModel(j))), vocab, hint);
+  const { data, usage } = await readOutfit(await Promise.all(jpegs.map((j) => forModel(j, 1280))), vocab, hint);
   const suggestions: Suggestion[] = [];
   const proposals: { group_id: string; value: string }[] = [];
   for (const g of vocab.groups) {

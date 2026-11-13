@@ -19,6 +19,7 @@ export function AddOutfit({ code, functions, initialFunction, groups, families, 
   const [functionId, setFunctionId] = useState(initialFunction || (functions.length === 1 ? functions[0].id : ''));
   const [full, setFull] = useState<Picked>(null);
   const [closeup, setCloseup] = useState<Picked>(null);
+  const [extras, setExtras] = useState<Picked[]>([]);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [outfitId, setOutfitId] = useState(existing?.id ?? '');
@@ -39,6 +40,7 @@ export function AddOutfit({ code, functions, initialFunction, groups, families, 
     const form = new FormData();
     form.set('function_id', functionId);
     form.set('full', full.blob, 'full.jpg'); form.set('closeup', closeup.blob, 'closeup.jpg');
+    extras.forEach((e, i) => { if (e) form.append('extra', e.blob, `extra${i}.jpg`); });
     form.set('consent', consent ? 'yes' : 'no');
     const res = await fetch(`/api/w/${code}/outfits`, { method: 'POST', body: form }).catch(() => null);
     const data = await res?.json().catch(() => ({}));
@@ -114,6 +116,15 @@ export function AddOutfit({ code, functions, initialFunction, groups, families, 
           <PhotoPicker label="Full outfit" hint="Top to hem" value={full} onChange={setFull} />
           <PhotoPicker label="Close-up of the work" hint="Embroidery, print or border" value={closeup} onChange={setCloseup} />
         </div>
+        <div className="space-y-2">
+          <p className="text-sm"><span className="font-medium">More photos (optional).</span> <span className="text-muted">The back, the border, the blouse or the dupatta. More photos give a more accurate reading and a surer result.</span></p>
+          <div className="grid grid-cols-3 gap-3">
+            {[...extras, ...(extras.length < 3 ? [null] : [])].map((e, i) => (
+              <PhotoPicker key={i} label="Add photo" hint="Optional" value={e}
+                onChange={(v) => setExtras((cur) => { const next = [...cur]; if (v) next[i] = v; else next.splice(i, 1); return next; })} />
+            ))}
+          </div>
+        </div>
         <div className="card space-y-2 text-sm">
           <p className="font-medium">Your photos stay private</p>
           <p className="text-muted">
@@ -151,11 +162,27 @@ export function AddOutfit({ code, functions, initialFunction, groups, families, 
 function ColourPicker({ group, families, picked, suggested, onToggle }: {
   group: VocabGroup; families: { id: string; label: string }[]; picked: string[]; suggested: string[]; onToggle: (id: string) => void;
 }) {
+  const guesses = group.values.filter((v) => suggested.includes(v.id));
   return (
     <section id="colour" className="card space-y-3">
       <div>
         <h2 className="text-xl font-semibold">Colour <span className="text-sm font-normal text-warn">required</span></h2>
         <p className="text-sm text-muted">Photos change colours, so please choose the real colour. Tap the main colour first; add others if the outfit has more than one.</p>
+      </div>
+      <div className="note space-y-2">
+        {guesses.length ? (
+          <>
+            <p><span className="font-medium">From your photos, we think it is:</span> tap to confirm, or pick the right colour below.</p>
+            <div className="flex flex-wrap gap-2">
+              {guesses.map((v) => (
+                <button key={v.id} type="button" onClick={() => onToggle(v.id)} aria-pressed={picked.includes(v.id)} aria-label={`Use suggested colour ${v.value}`}
+                  className={`chip flex items-center gap-2 ${picked.includes(v.id) ? 'chip-on' : ''}`}>
+                  <span className="h-5 w-5 rounded-full border border-black/20" style={{ background: v.hex ?? '#ccc' }} />{v.value}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : <p>We could not tell the colour from your photos. Please pick it below.</p>}
       </div>
       {families.map((f) => (
         <div key={f.id}>
@@ -176,7 +203,7 @@ function ColourPicker({ group, families, picked, suggested, onToggle }: {
           </div>
         </div>
       ))}
-      {suggested.length > 0 && <p className="text-xs text-muted">A gold ring marks the colour our reading guessed. It may be wrong.</p>}
+      {suggested.length > 0 && <p className="text-xs text-muted">A gold ring marks our guess in the swatches above.</p>}
     </section>
   );
 }

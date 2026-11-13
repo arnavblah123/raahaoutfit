@@ -10,8 +10,8 @@ Guests of the same wedding add what they plan to wear to each function. Each gue
 
 | Step | What happens | Where |
 |---|---|---|
-| Read | A small vision model returns attributes with a confidence each, an outfit bounding box that excludes the face, and a not-an-outfit flag. Low-confidence values come back blank. | `src/lib/pipeline/read.ts` |
-| Confirm | The guest picks the colour from swatches (never pre-selected) and can edit everything else. Matching runs only after this. | `src/components/AddOutfit.tsx` |
+| Read | A small vision model reads all of the outfit's photos together (two required, up to three more optional) and returns attributes with a confidence each, an outfit bounding box that excludes the face, and a not-an-outfit flag. Low-confidence values come back blank. | `src/lib/pipeline/read.ts` |
+| Confirm | The guest is shown the colour the app thinks it is and confirms it or picks another from the swatches (never pre-selected), and can edit everything else. Matching runs only after this. | `src/components/AddOutfit.tsx` |
 | Shortlist | Both photos are embedded with Marqo-FashionSigLIP and stored in pgvector. Top 5 by cosine similarity in the same function, plus any outfit sharing a garment type and the colour family. | `shortlist_outfits` in `0003_functions.sql` |
 | Judge | For each shortlisted pair above the threshold, a stronger vision model sees both outfits' photos and confirmed attributes and returns verdict, confidence, reason and missing evidence. Cached per pair. | `src/lib/pipeline/match.ts` |
 | More photos | A clash verdict below high confidence asks for the specific photo named, up to 2 extra rounds, then shows "Possible clash". If the earlier guest's photos are the limit, she gets a neutral "add a clearer photo" request. | `recomputeResult` |

@@ -8,9 +8,9 @@ import { getSettings } from '@/lib/settings';
 import { logUsage } from '@/lib/usage';
 
 export const maxDuration = 120;
-const MAX_EXTRA = 4;
+const MAX_EXTRA = 6;
 
-/** An extra photo, asked for when the judge could not decide. Cropped and stripped like the others. */
+/** An extra photo: asked for when the judge could not decide, or added by the guest herself. Cropped and stripped like the others. */
 export async function POST(req: Request, { params }: { params: Promise<{ code: string; id: string }> }) {
   const { code, id } = await params;
   const r = await requireGuest(code);

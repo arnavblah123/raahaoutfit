@@ -54,6 +54,16 @@ export function OutfitActions({ code, outfitId, hasResult, unseen, verdict, requ
           {photo && <button className="btn-primary btn-sm" onClick={addPhoto} disabled={!!busy}>{busy || 'Add and check again'}</button>}
         </section>
       )}
+      {!request && hasResult && (
+        <details className="card">
+          <summary className="cursor-pointer text-sm font-medium">Add another photo of this outfit</summary>
+          <div className="space-y-3 pt-3">
+            <p className="text-sm text-muted">Optional. A clearer or closer photo makes the check more certain. We will check again with it.</p>
+            <div className="w-32"><PhotoPicker label="Add photo" hint="Daylight, no flash" value={photo} onChange={setPhoto} /></div>
+            {photo && <button className="btn-primary btn-sm" onClick={addPhoto} disabled={!!busy}>{busy || 'Add and check again'}</button>}
+          </div>
+        </details>
+      )}
       {error && <p className="err">{error}</p>}
 
       {hasResult && !sent && !wrong && <button className="block text-sm text-muted underline" onClick={() => setWrong(true)}>This result is wrong</button>}
