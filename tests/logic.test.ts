@@ -123,3 +123,21 @@ test('vocabulary lookup, cost and vectors', () => {
   const v = normaliseVector(Array.from({ length: 768 }, () => 2))!;
   assert.ok(Math.abs(v.reduce((s, n) => s + n * n, 0) - 1) < 1e-9);
 });
+
+test('phone numbers are normalised to one format, Indian by default', async () => {
+  const { normalisePhone, parseGuestRows, textToRows } = await import('../src/lib/phone');
+  for (const v of ['9876543210', '98765 43210', '09876543210', '+91 98765-43210', '919876543210', '0091 9876543210', 919876543210, '9.19876543210E+11', '9876543210.0'])
+    assert.equal(normalisePhone(v), '+919876543210', String(v));
+  assert.equal(normalisePhone('+1 (415) 555-2671'), '+14155552671');
+  assert.equal(normalisePhone('+44 7911 123456'), '+447911123456');
+  for (const v of ['12345', '5876543210', '4155552671', '+91 12345', '', null, 'Riya']) assert.equal(normalisePhone(v), null, String(v));
+
+  const { entries, skipped } = parseGuestRows([
+    ['S.No', 'Guest name', 'Mobile'], [1, 'Riya Sharma', 9876543210], [2, '+91 98765 43211', 'Tara'], [3, 'Riya again', '09876543210'],
+    [4, 'Wrong', '98765'], [5, 'No number', ''], [],
+  ]);
+  assert.deepEqual(entries, [{ phone: '+919876543210', name: 'Riya Sharma' }, { phone: '+919876543211', name: 'Tara' }]);
+  assert.equal(skipped, 0);
+  assert.equal(parseGuestRows([['Wrong', '987654']]).skipped, 1);
+  assert.deepEqual(parseGuestRows(textToRows('9876543210\n"Tara",98765 43211\r\n\n')).entries.map((e) => e.name), [null, 'Tara']);
+});

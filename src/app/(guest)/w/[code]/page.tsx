@@ -5,8 +5,12 @@ import { LinksCard } from '@/components/LinksCard';
 import { VerdictBadge } from '@/components/VerdictBadge';
 import { asGuest, sql } from '@/lib/db';
 import { env } from '@/lib/env';
+import { SignIn, SignedInAs } from '@/components/SignIn';
+import { one } from '@/lib/db';
 import { googleEnabled } from '@/lib/google';
-import { getGuest, getWedding } from '@/lib/session';
+import { otpEnabled } from '@/lib/otp';
+import { maskPhone } from '@/lib/phone';
+import { getGuest, getIdentity, getWedding, signInEnabled } from '@/lib/session';
 import { functionName } from '@/lib/weddings';
 
 export const dynamic = 'force-dynamic';
@@ -15,12 +19,6 @@ const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN',
 export default async function WeddingPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ signin?: string }> }) {
   const { code } = await params;
   const { signin } = await searchParams;
-  const google = googleEnabled();
-  const googleButton = (label: string) => (
-    <a href={`/api/auth/google/start?code=${code}`} className="btn-ghost w-full">
-      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285f4]">G</span>{label}
-    </a>
-  );
   const wedding = await getWedding(code);
   if (!wedding) notFound();
   const header = (
@@ -33,18 +31,39 @@ export default async function WeddingPage({ params, searchParams }: { params: Pr
     return <div className="space-y-4">{header}<p className="note">This wedding has ended. All photos, names and outfit details have been deleted.</p></div>;
   }
   const guest = await getGuest(wedding);
+  const id = await getIdentity();
+  const signedIn = id && <SignedInAs label={id.phone ? maskPhone(id.phone) : id.email || 'Google'} />;
   if (!guest) {
+    const intro = <p className="text-muted">Add what you plan to wear to each function. You will be told, privately, if someone else is wearing the same or a very similar outfit.</p>;
+    if (!signInEnabled()) {
+      return (
+        <div className="space-y-5">
+          {header}{intro}
+          {wedding.require_approval && <p className="note">The host approves each guest. After you join, you will be let in once they say yes.</p>}
+          <JoinForm code={code} plain />
+        </div>
+      );
+    }
+    if (!id) {
+      return (
+        <div className="space-y-5">
+          {header}{intro}
+          <SignIn next={`/w/${code}`} phone={otpEnabled()} google={googleEnabled()} failed={signin === 'failed'} />
+          <p className="text-center text-sm text-muted">Use the mobile number the host has for you.</p>
+        </div>
+      );
+    }
+    // Signed in, not in this wedding yet. With a proved number we already know whether it is on the guest list.
+    const listed = id.phone ? await one<{ name: string | null }>('select name from guest_list where wedding_id = $1 and phone = $2', [wedding.id, id.phone]) : null;
+    const asking = !!id.phone && !listed && wedding.require_approval;
     return (
       <div className="space-y-5">
         {header}
-        <p className="text-muted">Add what you plan to wear to each function. You will be told, privately, if someone else is wearing the same or a very similar outfit.</p>
-        {signin === 'failed' && <p className="err">Google sign-in did not complete. Please try again.</p>}
-        {signin === 'full' && <p className="err">This wedding is full.</p>}
-        {wedding.require_approval && <p className="note">The host approves each guest. After you join, you will be let in once they say yes.</p>}
-        {google && googleButton('Continue with Google')}
-        {google && wedding.require_google
-          ? <p className="text-center text-sm text-muted">The host asks guests to sign in with Google for this wedding.</p>
-          : <>{google && <p className="text-center text-sm text-muted">or join with just your name</p>}<JoinForm code={code} /></>}
+        {listed && <p className="note"><span className="font-medium">You are on the guest list.</span> One last thing before you add your outfits.</p>}
+        {asking && <p className="note"><span className="font-medium">Your number is not on the guest list.</span> You can ask the host to let you in. They will see your name and number.</p>}
+        {!id.phone && wedding.require_approval && <p className="note">If your number is on the host&apos;s guest list you get straight in. If not, the host is asked to let you in.</p>}
+        <JoinForm code={code} name={id.name ?? ''} askPhone={!id.phone} asking={asking} />
+        {signedIn}
       </div>
     );
   }
@@ -55,7 +74,8 @@ export default async function WeddingPage({ params, searchParams }: { params: Pr
         {guest.status === 'pending'
           ? <p className="note"><span className="font-medium">Waiting for the host.</span> Hello {guest.display_name}. The host has been asked to let you in. Open this link again in a little while.</p>
           : <p className="err">The host has not approved this request to join.</p>}
-        {guest.status === 'pending' && <LinksCard code={code} appUrl={env.appUrl} isCreator={false} couple={wedding.couple_names} />}
+        {guest.status === 'pending' && !guest.phone && !guest.google_linked && <LinksCard code={code} appUrl={env.appUrl} isCreator={false} couple={wedding.couple_names} />}
+        {signedIn}
       </div>
     );
   }
@@ -134,15 +154,10 @@ export default async function WeddingPage({ params, searchParams }: { params: Pr
         );
       })}
 
-      <LinksCard code={code} appUrl={env.appUrl} isCreator={guest.role === 'creator'} couple={wedding.couple_names} />
-      {google && !guest.google_linked && (
-        <div className="card space-y-2">
-          <p className="text-sm text-muted">Connect Google so you can always get back to your outfits, on any phone.</p>
-          {googleButton('Connect Google')}
-        </div>
-      )}
-      {guest.role === 'creator' && <Link href={`/w/${code}/settings`} className="btn-ghost w-full">Wedding settings</Link>}
+      <LinksCard code={code} appUrl={env.appUrl} isCreator={guest.role === 'creator'} couple={wedding.couple_names} personal={!guest.phone && !guest.google_linked} />
+      {guest.role === 'creator' && <Link href={`/w/${code}/settings`} className="btn-ghost w-full">{signInEnabled() ? 'Guest list and settings' : 'Wedding settings'}</Link>}
       <p className="text-center text-xs text-muted">Photos and details are deleted 7 days after the wedding. <Link href="/privacy" className="underline">How we protect your photos</Link></p>
+      {signedIn}
     </div>
   );
 }

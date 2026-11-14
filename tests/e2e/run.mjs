@@ -29,6 +29,19 @@ const browser = await chromium.launch();
 const phone = { ...devices['Pixel 7'], deviceScaleFactor: 1 };
 const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
 
+const newPhone = async () => (await browser.newContext(phone)).newPage();
+const otpFor = async (number) => (await (await fetch('http://localhost:4801/_state')).json()).otp[number];
+/** Sign in with a mobile number on whatever page is showing the sign-in card. */
+async function signIn(page, number) {
+  await page.waitForLoadState('networkidle');   // the form must be live before it is submitted
+  await page.fill('#phone', number);
+  await page.getByRole('button', { name: 'Send code by SMS' }).click();
+  await page.locator('#otp').waitFor();
+  const e164 = '+91' + number.replace(/\D/g, '').slice(-10);
+  await page.fill('#otp', await otpFor(e164));
+  await page.getByRole('button', { name: 'Verify and continue' }).click();
+  await page.locator('#otp').waitFor({ state: 'detached' });
+}
 async function pick(page, index, file) {
   await page.locator('input[type=file]').nth(index).setInputFiles(file);
   await page.getByRole('button', { name: 'Use this crop' }).click();
@@ -52,16 +65,32 @@ async function addOutfit(page, code, files, { consent = false, colour = 'red', e
 // ---------------------------------------------------------------- 1. Host creates the wedding
 const A = await (await browser.newContext(phone)).newPage();
 await A.goto(`${BASE}/create`);
+assert.equal(await A.locator('#couple').count(), 0, 'the create form is not shown before sign-in');
+assert.equal((await A.request.post(`${BASE}/api/weddings`, { data: {} })).status(), 401);
+await A.fill('#phone', '98100 00001');
+await A.getByRole('button', { name: 'Send code by SMS' }).click();
+await A.fill('#otp', '000000'); await A.getByRole('button', { name: 'Verify and continue' }).click();
+await A.getByText('That code is not right').waitFor();
+await A.fill('#otp', await otpFor('+919810000001')); await A.getByRole('button', { name: 'Verify and continue' }).click();
+await A.locator('#couple').waitFor();
+ok('creating a wedding asks for sign-in first; a wrong code is refused, the right one signs in');
+writeFileSync(`${SHOTS}/guests.csv`, 'Name,Mobile\nRiya Sharma,98100 00002\nTara,+91-98100-00003\nBad row,987654\nRiya again,09810000002\n');
+await A.getByTestId('guest-file').setInputFiles(`${SHOTS}/guests.csv`);
+await A.getByText('2 numbers on the list').waitFor();
+await A.getByText('1 skipped').waitFor();
+await shot(A, '00-create-guest-list');
 await A.fill('#couple', 'Aanya and Kabir'); await A.fill('#city', 'Jaipur'); await A.fill('#name', 'Meera');
 await A.fill('#date', new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
 await A.getByRole('checkbox', { name: /colour map/ }).check();
 await A.getByRole('button', { name: /Create and get the link/ }).click();
 await A.waitForURL(/\/w\/[a-z0-9]+$/);
 const code = A.url().split('/').pop();
-await A.getByText('Your personal link').waitFor();
+await A.getByText('Share with guests').waitFor();
 assert.ok(await A.getByText(`${code}`).first().isVisible());
+assert.equal(await A.getByText('Connect Google').count(), 0);
+assert.deepEqual(await q('select phone, name from guest_list order by phone'), [{ phone: '+919810000002', name: 'Riya Sharma' }, { phone: '+919810000003', name: 'Tara' }]);
 await shot(A, '01-home-creator');
-ok(`wedding created with join code of ${code.length} characters, share and recovery links shown`);
+ok(`wedding created with join code of ${code.length} characters and a guest list read from a CSV file (duplicates and bad numbers dropped)`);
 
 // ---------------------------------------------------------------- 2. First outfit: read, confirm, no clash
 let confirm = await addOutfit(A, code, [RED, RED2], { consent: true, extra: RED3 });
@@ -101,8 +130,13 @@ ok('attributes saved as confirmed; low-confidence left blank; unknown AI values 
 // ---------------------------------------------------------------- 3. Second guest, same outfit
 const B = await (await browser.newContext(phone)).newPage();
 await B.goto(`${BASE}/w/${code}`);
-await B.fill('#name', 'Riya'); await B.getByRole('button', { name: 'Join' }).click();
+assert.equal(await B.locator('#name').count(), 0, 'sign-in comes before anything else');
+await shot(B, '03b-sign-in');
+await signIn(B, '9810000002');
+await B.getByText('You are on the guest list').waitFor();
+await B.fill('#name', 'Riya'); await B.getByRole('button', { name: 'Continue' }).click();
 await B.getByText('Hello Riya').waitFor();
+ok('a guest on the list signs in with her number and gets straight in');
 confirm = await addOutfit(B, code, [RED2, RED]);
 await confirm();
 await B.getByText('Same outfit').first().waitFor();
@@ -149,7 +183,8 @@ ok('a guest can add another photo at any time and the check re-runs with it');
 await setStub({ judge: { verdict: 'similar_look', confidence: 'medium', reason: 'Similar zari work on a red lehenga.', missing_evidence: 'close-up of the border', limiting_side: 'both' } });
 const C = await (await browser.newContext(phone)).newPage();
 await C.goto(`${BASE}/w/${code}`);
-await C.fill('#name', 'Tara'); await C.getByRole('button', { name: 'Join' }).click();
+await signIn(C, '+91 98100 00003');
+await C.fill('#name', 'Tara'); await C.getByRole('button', { name: 'Continue' }).click();
 await C.getByText('Hello Tara').waitFor();
 confirm = await addOutfit(C, code, [RED3, RED]);
 await confirm();
@@ -199,69 +234,108 @@ assert.equal((await q('select count(*)::int as n from outfit_photos where outfit
 assert.equal((await q('select count(*)::int as n from outfit_pairs where outfit_a_id = $1 or outfit_b_id = $1', [outfitC]))[0].n, 0);
 ok('deleting an outfit removes its photos, embeddings, attributes and pairs');
 
-// ---------------------------------------------------------------- 7. Recovery link on a fresh browser
-const recovery = await A.evaluate((c) => sessionStorage.getItem(`oc_recovery_${c}`), code);
-const R = await (await browser.newContext(phone)).newPage();
-await R.goto(`${BASE}/r/${recovery}`);
+// ---------------------------------------------------------------- 7. Same number on a fresh browser
+const R = await newPhone();
+await R.goto(`${BASE}/`);
+await signIn(R, '9810000001');
+await R.getByText('you are the host').click();
 await R.getByText('Hello Meera').waitFor();
-ok('recovery link restores the guest on a new browser');
+ok('signing in with the same number on another phone opens the same wedding and outfits');
 
-// ---------------------------------------------------------------- 7b. Host approval and Google sign-in
-const newPhone = async () => (await browser.newContext(phone)).newPage();
-await A.goto(`${BASE}/w/${code}/settings`);
-await A.getByRole('checkbox', { name: /Approve each guest myself/ }).check();
-await A.waitForResponse((r) => r.url().endsWith('/settings') && r.request().method() === 'PATCH').catch(() => {});
+// ---------------------------------------------------------------- 7b. Not on the list: ask the host
 const D = await newPhone();
 await D.goto(`${BASE}/w/${code}`);
-await D.getByText('The host approves each guest').waitFor();
-await D.fill('#name', 'Dev'); await D.getByRole('button', { name: 'Join', exact: true }).click();
+await signIn(D, '9810000004');
+await D.getByText('Your number is not on the guest list').waitFor();
+await D.fill('#name', 'Dev'); await D.getByRole('button', { name: 'Ask the host to let me in' }).click();
 await D.getByText('Waiting for the host').waitFor();
 assert.equal(await D.getByRole('link', { name: 'Add outfit' }).count(), 0);
 assert.equal((await D.request.post(`${BASE}/api/w/${code}/outfits`, { multipart: { function_id: 'x' } })).status(), 403);
 await A.goto(`${BASE}/w/${code}`);
 await A.getByText('1 guest is waiting for your approval').click();
+await A.getByText('+919810000004').waitFor();
 await A.getByRole('button', { name: 'Let in' }).click();
 await A.getByText('Asking to join').waitFor({ state: 'detached' });
 await D.reload(); await D.getByText('Hello Dev').waitFor();
-ok('host approval: a new guest waits, cannot upload, and gets in once the host says yes');
+ok('a number that is not on the list asks to join, cannot upload, and gets in once the host says yes');
 
+// Google sign-in still needs a number. Not on the list: the host is asked.
 const E = await newPhone();
 await E.goto(`${BASE}/w/${code}`);
 await E.getByRole('link', { name: 'Continue with Google' }).click();
+await E.locator('#phone').waitFor();
+assert.equal(await E.inputValue('#name'), 'Zoya');
+await E.fill('#phone', '98100 00005'); await E.getByRole('button', { name: 'Continue' }).click();
 await E.getByText('Waiting for the host').waitFor();
-await E.getByText('Hello Zoya').waitFor();
 await A.goto(`${BASE}/w/${code}/settings`);
 await A.getByText('Google', { exact: true }).waitFor();
+await A.getByText('not verified by SMS').waitFor();
 await shot(A, '07b-host-approval');
 await A.getByRole('button', { name: 'Decline' }).click();
+await A.getByText('declined').waitFor();
 await E.reload(); await E.getByText('The host has not approved this request').waitFor();
-await A.reload(); await A.getByRole('button', { name: 'Let in' }).click();
+await A.getByRole('button', { name: 'Let in' }).click();
+await A.getByText('Asking to join').waitFor({ state: 'detached' });
 await E.reload(); await E.getByText('Hello Zoya').waitFor();
 const E2 = await newPhone();                      // same Google account, another phone
 await E2.goto(`${BASE}/w/${code}`);
 await E2.getByRole('link', { name: 'Continue with Google' }).click();
 await E2.getByText('Hello Zoya').waitFor();
-assert.deepEqual(await q(`select display_name, email, status from guests where google_sub = 'g-1'`), [{ display_name: 'Zoya', email: 'zoya@example.com', status: 'approved' }]);
-ok('Google sign-in: creates the guest once, respects host approval, and the same account gets back in from another phone');
+assert.deepEqual(await q(`select display_name, email, status, phone, phone_verified from guests where google_sub = 'g-1'`),
+  [{ display_name: 'Zoya', email: 'zoya@example.com', status: 'approved', phone: '+919810000005', phone_verified: false }]);
+ok('Google sign-in: asks for the number, goes to the host when it is not on the list, and the same account gets back in from another phone');
 
-await setStub({ googleUser: { sub: 'g-2', email: 'dev@example.com', given_name: 'Devendra' } });
-await D.getByRole('link', { name: 'Connect Google' }).click();
-await D.getByText('Hello Dev').waitFor();
-assert.equal(await D.getByRole('link', { name: 'Connect Google' }).count(), 0);
-assert.equal((await q(`select google_sub from guests where display_name = 'Dev'`))[0].google_sub, 'g-2');
-ok('a name-only guest can connect Google to her existing outfits');
-
-await A.goto(`${BASE}/w/${code}/settings`);
-await A.getByRole('checkbox', { name: /Guests must sign in with Google/ }).check();
-await A.waitForResponse((r) => r.url().endsWith('/settings') && r.request().method() === 'PATCH').catch(() => {});
+// The host adds numbers later; a waiting guest with one of them is let in, and a new one walks in.
 const F = await newPhone();
 await F.goto(`${BASE}/w/${code}`);
-await F.getByRole('link', { name: 'Continue with Google' }).waitFor();
-assert.equal(await F.locator('#name').count(), 0);
-assert.equal((await F.request.post(`${BASE}/api/w/${code}/join`, { data: { name: 'Sneaky' } })).status(), 403);
-const forged = await F.request.get(`${BASE}/api/auth/google/callback?code=stub-code&state=made-up`, { maxRedirects: 0 });
+await signIn(F, '9810000006');
+await F.fill('#name', 'Farah'); await F.getByRole('button', { name: 'Ask the host to let me in' }).click();
+await F.getByText('Waiting for the host').waitFor();
+await A.goto(`${BASE}/w/${code}/settings`);
+await A.getByLabel('Paste numbers').fill('9810000006\nGauri, 9810000007\n9810000002');
+await A.getByRole('button', { name: 'Add', exact: true }).first().click();
+await A.getByText('2 added, 1 already on the list').waitFor();
+await A.getByText('4 numbers, 3 joined').waitFor();
+await shot(A, '07c-guest-list');
+await F.reload(); await F.getByText('Hello Farah').waitFor();
+ok('the host adds numbers later from settings; someone waiting with one of them is let in');
+
+// Google with a number that is on the list gets straight in. If the real owner of the number later proves it by SMS, she takes it over.
+await setStub({ googleUser: { sub: 'g-2', email: 'gauri@example.com', given_name: 'Gauri' } });
+const G = await newPhone();
+await G.goto(`${BASE}/w/${code}`);
+await G.getByRole('link', { name: 'Continue with Google' }).click();
+await G.fill('#phone', '9810000007'); await G.getByRole('button', { name: 'Continue' }).click();
+await G.getByText('Hello Gauri').waitFor();
+await setStub({ googleUser: { sub: 'g-3', email: 'x@example.com', given_name: 'Mallory' } });
+const X = await newPhone();
+await X.goto(`${BASE}/w/${code}`);
+await X.getByRole('link', { name: 'Continue with Google' }).click();
+await X.fill('#phone', '9810000007'); await X.getByRole('button', { name: 'Continue' }).click();
+await X.getByText('That number has already been used').waitFor();
+const H = await newPhone();
+await H.goto(`${BASE}/w/${code}`);
+await signIn(H, '9810000007');
+await H.fill('#name', 'Gauri'); await H.getByRole('button', { name: 'Continue' }).click();
+await H.getByText('Hello Gauri').waitFor();
+assert.deepEqual(await q(`select google_sub, phone_verified from guests where phone = '+919810000007'`), [{ google_sub: null, phone_verified: true }]);
+await G.reload(); await G.locator('#phone').waitFor();
+ok('a listed number entered with Google gets in; a second account cannot reuse it; proving the number by SMS takes it over');
+
+const anon2 = await newPhone();
+assert.equal((await anon2.request.post(`${BASE}/api/w/${code}/join`, { data: { name: 'Sneaky' } })).status(), 401);
+const forged = await anon2.request.get(`${BASE}/api/auth/google/callback?code=stub-code&state=made-up`, { maxRedirects: 0 });
 assert.ok([302, 303, 307].includes(forged.status()) && !(forged.headers().location ?? '').includes('/w/'), 'a callback without the matching state signs nobody in');
-ok('"must sign in with Google": name-only joining is switched off; forged callbacks are ignored');
+await anon2.goto(`${BASE}/w/${code}`);
+await anon2.locator('#phone').waitFor();
+assert.equal((await anon2.request.post(`${BASE}/api/auth/otp/send`, { data: { phone: '9810000008' } })).status(), 200);
+assert.equal((await anon2.request.post(`${BASE}/api/auth/otp/send`, { data: { phone: '9810000008' } })).status(), 429, 'a second code within 30 seconds is refused');
+for (let i = 0; i < 5; i++) assert.equal((await anon2.request.post(`${BASE}/api/auth/otp/verify`, { data: { phone: '9810000008', code: '00000' + i } })).status(), 400);
+assert.equal((await anon2.request.post(`${BASE}/api/auth/otp/verify`, { data: { phone: '9810000008', code: await otpFor('+919810000008') } })).status(), 400, 'five wrong tries kill the code');
+await H.getByRole('button', { name: 'Sign out' }).click();
+await H.waitForURL(`${BASE}/`);
+await H.goto(`${BASE}/w/${code}`); await H.locator('#phone').waitFor();
+ok('nobody joins without signing in; forged callbacks are ignored; codes are rate limited; sign out works');
 
 // ---------------------------------------------------------------- 8. Admin
 const adminCtx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
@@ -378,9 +452,9 @@ assert.ok(t.note.includes('Fewer than 20'));
 await q(`update weddings set wedding_date = current_date - 8 where join_code = $1`, [code]);
 const purge = await (await cron('purge')).json();
 assert.deepEqual([purge.weddings, purge.outfitsPurged, purge.keptWithConsent], [1, 2, 1]);
-const left = (await q(`select (select count(*) from guests)::int as guests, (select count(*) from outfits)::int as outfits, (select count(*) from outfit_photos)::int as photos,
+const left = (await q(`select (select count(*) from guests)::int as guests, (select count(*) from guest_list)::int as listed, (select count(*) from outfits)::int as outfits, (select count(*) from outfit_photos)::int as photos,
   (select count(*) from outfit_attributes)::int as attrs, (select count(*) from training_photos)::int as kept, (select purged_stats from weddings limit 1) as stats`))[0];
-assert.deepEqual([left.guests, left.outfits, left.photos, left.attrs], [0, 0, 0, 0]);
+assert.deepEqual([left.guests, left.listed, left.outfits, left.photos, left.attrs], [0, 0, 0, 0, 0]);
 assert.equal(left.kept, 3); assert.equal(left.stats.outfits, 2);
 await A.goto(`${BASE}/w/${code}`);
 await A.getByText('This wedding has ended').waitFor();

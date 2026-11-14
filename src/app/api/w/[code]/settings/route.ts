@@ -11,10 +11,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ code: 
   if (typeof body.colour_map_enabled === 'boolean') {
     await sql('update weddings set colour_map_enabled = $1 where id = $2', [body.colour_map_enabled, r.wedding.id]);
   }
-  for (const key of ['require_approval', 'require_google'] as const) {
+  for (const key of ['require_approval'] as const) {
     if (typeof body[key] === 'boolean') await sql(`update weddings set ${key} = $1 where id = $2`, [body[key], r.wedding.id]);
   }
-  // Turning approval off lets in everyone who was waiting.
+  // Opening the wedding to everyone lets in everyone who was waiting.
   if (body.require_approval === false) await sql(`update guests set status = 'approved' where wedding_id = $1 and status = 'pending'`, [r.wedding.id]);
   if (body.add_function) {
     const [f] = parseFunctions([body.add_function]);

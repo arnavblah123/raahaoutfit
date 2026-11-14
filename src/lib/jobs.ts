@@ -86,11 +86,13 @@ export async function purgeExpired() {
       await q('update result_feedback set pair_snapshot = null where outfit_id = any($1::uuid[])', [ids]);
       await q('delete from outfits where wedding_id = $1', [w.id]);      // cascades: photos, vectors, attributes, pairs, results
       await q('delete from guests where wedding_id = $1', [w.id]);
+      await q('delete from guest_list where wedding_id = $1', [w.id]);
       await q('delete from rate_limit_events where wedding_id = $1', [w.id]);
       await q('update weddings set purged_at = now(), purged_stats = $2::jsonb where id = $1', [w.id, json(stats[0])]);
     });
     outfitsPurged += outfits.length; kept += consented.length;
   }
+  await sql(`delete from otp_codes where created_at < now() - interval '2 days'`);
   // Uploads that were never confirmed are not kept around either.
   const stale = await sql<{ id: string }>(`select id from outfits where status = 'read' and created_at < now() - interval '48 hours' limit 200`);
   for (const o of stale) await deleteOutfit(o.id);

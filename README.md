@@ -37,7 +37,8 @@ Copy `.env.example` to `.env.local` for local work, and set the same values in V
 | `ADMIN_PASSWORD` | Password for `/admin` |
 | `SESSION_SECRET` | Long random string that signs the admin session cookie |
 | `CRON_SECRET` | Vercel Cron sends it to the scheduled-job routes as a bearer token |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. Set both to switch on Google sign-in for guests |
+| `OTP_PROVIDER` and its keys | Sign-in by mobile number with a one-time code. See "Sign-in and the guest list" |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Set both to switch on Google sign-in |
 | `ANTHROPIC_API_KEY` | Key for the Read and Judge models |
 | `AI_READ_MODEL`, `AI_JUDGE_MODEL`, `AI_VOCAB_MODEL` | Model names. Defaults: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` |
 | `AI_READ_EFFORT`, `AI_JUDGE_EFFORT` | Effort level per step (`low`, `medium`, `high`; `none` to omit) |
@@ -174,25 +175,43 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/smoke.sql
 
 Database checks on a scratch database with the migrations applied, inside a transaction that is rolled back: shortlist, colour map, similar styles, vocabulary promotion, and what the restricted guest role can and cannot read.
 
-**End to end.** `tests/e2e/run.mjs` drives the real app in a phone-sized browser: create a wedding, three guests upload, clash and extra-photo rounds, photo privacy between guests, feedback, delete, recovery link, the admin pages, CSV export and the retention purge. The AI and embedding services are replaced by local stand-ins (`tests/e2e/stubs.mjs`), so it needs no keys. It needs a scratch Postgres with pgvector and Playwright (`npm i -D playwright`):
+**End to end.** `tests/e2e/run.mjs` drives the real app in a phone-sized browser: create a wedding, sign-in by one-time code and by Google, the guest list (CSV upload, numbers added later, requests to join), three guests upload, clash and extra-photo rounds, photo privacy between guests, feedback, delete, the admin pages, CSV export and the retention purge. The AI, embedding, Google and SMS services are replaced by local stand-ins (`tests/e2e/stubs.mjs`), so it needs no keys. It needs a scratch Postgres with pgvector and Playwright (`npm i -D playwright`):
 
 ```bash
 node tests/e2e/stubs.mjs
 ```
 
 ```bash
-DATABASE_URL=postgres://... ADMIN_PASSWORD=test SESSION_SECRET=0123456789abcdef0123456789abcdef CRON_SECRET=test ANTHROPIC_API_KEY=stub ANTHROPIC_BASE_URL=http://localhost:4801 EMBED_URL=http://localhost:4802 NEXT_PUBLIC_EMBED_MODE=server NEXT_PUBLIC_APP_URL=http://localhost:3320 sh -c 'npm run db:migrate && npm run build && PORT=3320 npm start'
+DATABASE_URL=postgres://... ADMIN_PASSWORD=test SESSION_SECRET=0123456789abcdef0123456789abcdef CRON_SECRET=test ANTHROPIC_API_KEY=stub ANTHROPIC_BASE_URL=http://localhost:4801 EMBED_URL=http://localhost:4802 NEXT_PUBLIC_EMBED_MODE=server NEXT_PUBLIC_APP_URL=http://localhost:3320 GOOGLE_CLIENT_ID=stub GOOGLE_CLIENT_SECRET=stub GOOGLE_AUTH_URL=http://localhost:4803/auth GOOGLE_TOKEN_URL=http://localhost:4803/token GOOGLE_JWKS_URL=http://localhost:4803/jwks GOOGLE_ISSUER=http://localhost:4803 OTP_PROVIDER=webhook OTP_WEBHOOK_URL=http://localhost:4804 sh -c 'npm run db:migrate && npm run build && PORT=3320 npm start'
 ```
 
 ```bash
 DATABASE_URL=postgres://... ADMIN_PASSWORD=test CRON_SECRET=test npm run test:e2e
 ```
 
-## Guest verification (optional)
+## Sign-in and the guest list
 
-Guests join with just a name by default. Two optional checks can be added per wedding:
+Everyone signs in before anything else, the host before creating a wedding and each guest before joining, with either a **mobile number** (a six-digit code by SMS) or **Google**. A signed-in person gets back to their weddings from any phone; the home page lists them.
 
-- **Host approval.** The host ticks "Approve each guest myself" when creating the wedding or in Wedding settings. New guests wait, and cannot add outfits, until the host lets them in. The host sees only the name they typed.
-- **Google sign-in.** Switched on for the whole app by setting `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Guests then see "Continue with Google" next to the name form, and a signed-in guest can get back to her outfits from any device. A name-only guest can connect Google later. The host can also require Google for a wedding, which switches name-only joining off.
+**The guest list.** When creating a wedding, and at any time later under "Guest list and settings", the host adds guests' mobile numbers: an Excel (.xlsx) or CSV file, pasted text, or picked from the phone's contacts (Android Chrome). The file is read on the host's device; in each row the first cell that is a phone number is taken as the number and the first cell with letters as the name, so column order and heading rows do not matter. Numbers without a country code are read as Indian; duplicates are dropped.
 
-To set up Google sign-in: in Google Cloud Console create a project, configure the OAuth consent screen (External, then publish it), and create an OAuth client of type "Web application" with the authorised redirect URI `<NEXT_PUBLIC_APP_URL>/api/auth/google/callback`. Put the client ID and secret in the two environment variables and redeploy. The sign-in is a plain OAuth code flow verified against Google's public keys; no outside auth service is involved. The email is stored on the guest row, never shown to the host or other guests, and deleted with everything else 7 days after the wedding.
+**Who gets in.**
+
+- A number on the list, proved by SMS code: straight in.
+- Signed in with Google: the guest is asked for their mobile number. If it is on the list they get in. That number is not proved, so the host sees it marked "not verified by SMS", no second Google account can use it, and if its real owner later signs in with an SMS code she takes the place over and the Google account is detached.
+- Not on the list: the guest can ask to join. The host sees the name and number under "Asking to join" and lets them in or declines. Adding the number to the list also lets them in.
+- The host can untick "Only people on my guest list" to let in anyone who has the link (they still sign in).
+
+Weddings created before this change keep working: guests already in stay in through their existing browser cookie or personal link, and those weddings stay open to anyone with the link until the host ticks "Only people on my guest list".
+
+**Setting up SMS codes.** The app makes and checks the codes itself (10-minute expiry, five tries, limits per number, per IP address and per day); the provider only delivers the text. Set `OTP_PROVIDER`:
+
+- `msg91`: set `MSG91_AUTH_KEY` and `MSG91_TEMPLATE_ID`. In MSG91, create an OTP template containing the code variable and get it DLT-approved (required for SMS to Indian numbers). This integration was written from MSG91's published API and has not yet been run against a live account, so send yourself a code after deploying before sharing a wedding link.
+- `webhook`: set `OTP_WEBHOOK_URL` (and optionally `OTP_WEBHOOK_SECRET`, sent as a bearer token). The app POSTs `{"phone":"+919876543210","code":"123456","message":"..."}`; point it at any SMS or WhatsApp sender.
+- `log`: the code is printed to the server log. For local development only; it is ignored in production.
+
+**Setting up Google sign-in.** In Google Cloud Console create a project, configure the OAuth consent screen (External, then publish it), and create an OAuth client of type "Web application" with the authorised redirect URI `<NEXT_PUBLIC_APP_URL>/api/auth/google/callback`. Put the client ID and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` and redeploy. It is a plain OAuth code flow verified against Google's public keys; no outside auth service is involved.
+
+If neither is configured, the app falls back to joining with just a name, with optional host approval.
+
+Phone numbers, emails and the guest list are never shown to other guests and are deleted with everything else 7 days after the wedding.

@@ -11,8 +11,8 @@ function Copy({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** Share link for the host, and the personal recovery link shown once after creating or joining. */
-export function LinksCard({ code, appUrl, isCreator, couple }: { code: string; appUrl: string; isCreator: boolean; couple: string }) {
+/** Share link for the host, and (only for a guest with no sign-in) the personal recovery link. */
+export function LinksCard({ code, appUrl, isCreator, couple, personal = true }: { code: string; appUrl: string; isCreator: boolean; couple: string; personal?: boolean }) {
   const [recovery, setRecovery] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setRecovery(sessionStorage.getItem(`oc_recovery_${code}`)); }, [code]);
@@ -39,7 +39,7 @@ export function LinksCard({ code, appUrl, isCreator, couple }: { code: string; a
           </div>
         </div>
       )}
-      <div className="card space-y-2">
+      {personal && <div className="card space-y-2">
         <p className="font-medium">Your personal link</p>
         {link ? (
           <>
@@ -53,7 +53,7 @@ export function LinksCard({ code, appUrl, isCreator, couple }: { code: string; a
             <button type="button" className="btn-ghost btn-sm" onClick={renew} disabled={busy}>{busy ? 'One moment…' : 'Get my personal link'}</button>
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

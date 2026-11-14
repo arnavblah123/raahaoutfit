@@ -2,6 +2,7 @@
 //   :4801  Anthropic Messages API (Read and Judge answers are canned; POST /_set changes them)
 //   :4802  embedding server (vector = the photo's mean colour, so similar photos get similar vectors)
 //   :4803  Google sign-in (always signs in as state.googleUser)
+//   :4804  SMS sender for one-time codes (remembers the last code per number in state.otp)
 import { createServer } from 'http';
 import sharp from 'sharp';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
@@ -11,6 +12,7 @@ const state = {
   googleUser: { sub: 'g-1', email: 'zoya@example.com', given_name: 'Zoya' },
   judge: { verdict: 'same_outfit', confidence: 'high', reason: 'Same floral jaal layout and gota border in the same red family.', missing_evidence: '', limiting_side: 'none' },
   calls: { read: 0, judge: 0, vocab: 0 },
+  otp: {},
 };
 const body = async (req) => { const c = []; for await (const x of req) c.push(x); return Buffer.concat(c); };
 const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
@@ -73,4 +75,9 @@ createServer(async (req, res) => {
   }
   send(res, 404, {});
 }).listen(4803);
+createServer(async (req, res) => {
+  const { phone, code } = JSON.parse((await body(req)).toString());
+  state.otp[phone] = code;
+  send(res, 200, { ok: true });
+}).listen(4804);
 console.log('stubs ready');
